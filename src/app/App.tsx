@@ -129,6 +129,32 @@ function cn(...c: (string | boolean | undefined | null)[]): string {
   return c.filter(Boolean).join(" ");
 }
 
+function StockFlowLogo({ size = "md", showText = true, className, darkText = false }: {
+  size?: "sm" | "md" | "lg"; showText?: boolean; className?: string; darkText?: boolean;
+}) {
+  const sizes = {
+    sm: { box: "w-6 h-6 rounded-md", svg: "w-3.5 h-3.5", text: "text-xs" },
+    md: { box: "w-8 h-8 rounded-lg", svg: "w-4 h-4", text: "text-sm" },
+    lg: { box: "w-10 h-10 rounded-xl", svg: "w-5.5 h-5.5", text: "text-lg" },
+  };
+  const s = sizes[size];
+  return (
+    <div className={cn("flex items-center gap-2.5 select-none", className)}>
+      <div className={cn("bg-gradient-to-tr from-[#1D4ED8] via-[#2563EB] to-[#3B82F6] flex items-center justify-center shadow-md shadow-blue-600/30 shrink-0", s.box)}>
+        <svg viewBox="0 0 24 24" className={cn(s.svg)} fill="none">
+          <path d="M3 7l9-4 9 4v10l-9 4-9-4V7z" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+          <path d="M12 3v18M3 7l9 4 9-4" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      {showText && (
+        <span className={cn("font-black tracking-tight", darkText ? "text-slate-900 dark:text-white" : "text-white", s.text)}>
+          Stock<span className="text-[#3B82F6]">Flow</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function fmtC(n: number, compact = false): string {
   if (compact) {
     if (n >= 1_000_000) return `PKR ${(n / 1_000_000).toFixed(2)}M`;
@@ -339,18 +365,7 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
     )}>
       {/* Logo */}
       <div className={cn("flex items-center gap-3 h-14 px-4 border-b border-white/[0.06] shrink-0", collapsed && !mobile && "justify-center px-0")}>
-        <div className="w-8 h-8 shrink-0 rounded-lg bg-[#2563EB] flex items-center justify-center shadow-lg shadow-blue-600/30">
-          <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none">
-            <path d="M3 7l9-4 9 4v10l-9 4-9-4V7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-            <path d="M12 3v18M3 7l9 4 9-4" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-          </svg>
-        </div>
-        {(!collapsed || mobile) && (
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-white leading-none tracking-tight">StockFlow</p>
-            <p className="text-[10px] text-slate-500 mt-0.5 font-mono">ENTERPRISE · v3.2.1</p>
-          </div>
-        )}
+        <StockFlowLogo size="md" showText={!collapsed || mobile} />
         {mobile && (
           <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 transition-colors">
             <X className="w-4 h-4" />
@@ -447,9 +462,9 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
   return (
     <header className="h-14 bg-white dark:bg-[#0F172A] border-b border-slate-200/80 dark:border-slate-700/50 flex items-center px-4 gap-4 shrink-0 z-10">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-xs text-slate-400 font-medium hidden sm:block">StockFlow</span>
-        <ChevronRight className="w-3 h-3 text-slate-300 hidden sm:block shrink-0" />
-        <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{labels[screen] ?? screen}</span>
+        <StockFlowLogo size="sm" darkText className="hidden sm:flex" />
+        <ChevronRight className="w-3.5 h-3.5 text-slate-300 hidden sm:block shrink-0" />
+        <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{labels[screen] ?? screen}</span>
       </div>
 
       <div className="flex-1 max-w-md mx-auto">
@@ -2452,15 +2467,7 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
     <div className="min-h-screen flex bg-[#F8FAFC] dark:bg-[#0F172A]">
       <div className="w-full lg:w-[460px] flex flex-col justify-center px-8 py-12 shrink-0">
         <div className="max-w-sm mx-auto w-full">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#2563EB] flex items-center justify-center shadow-lg shadow-blue-600/30">
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
-                <path d="M3 7l9-4 9 4v10l-9 4-9-4V7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M12 3v18M3 7l9 4 9-4" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <span className="text-sm font-bold text-slate-900 dark:text-white">StockFlow ERP</span>
-          </div>
+          <StockFlowLogo size="md" darkText />
 
           <div className="mt-10 mb-7">
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Welcome back</h1>
@@ -2491,13 +2498,8 @@ function AuthScreen({ onEnter }: { onEnter: () => void }) {
 
       <div className="hidden lg:flex flex-1 flex-col justify-between bg-[#0B1120] p-12 relative overflow-hidden">
         <div className="relative">
-          <div className="flex items-center gap-2.5 mb-14">
-            <div className="w-8 h-8 rounded-lg bg-[#2563EB] flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
-                <path d="M3 7l9-4 9 4v10l-9 4-9-4V7z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <span className="text-sm font-bold text-white">StockFlow ERP</span>
+          <div className="mb-14">
+            <StockFlowLogo size="lg" />
           </div>
           <h2 className="text-4xl font-black text-white leading-[1.1] tracking-tight max-w-xs">
             The operating system for modern commerce.
