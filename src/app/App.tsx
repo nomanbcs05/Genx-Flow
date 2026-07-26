@@ -358,6 +358,11 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
   dark: boolean; setDark: (d: boolean) => void;
   mobile?: boolean; onClose?: () => void;
 }) {
+  const { currentUser, logout } = useStockFlow();
+  const userName = currentUser?.name || "Bilal Shoukat";
+  const userRole = currentUser?.role || "Admin";
+  const initials = userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "BS";
+
   return (
     <aside className={cn(
       "flex flex-col h-full bg-[#0B1120] border-r border-white/[0.06] transition-all duration-200 ease-in-out",
@@ -429,15 +434,20 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
             {!collapsed && <span className="font-medium">Collapse</span>}
           </button>
         )}
-        <div className={cn("flex items-center gap-2.5 px-2 py-2 mt-1 rounded-lg", collapsed && !mobile && "justify-center px-0")}>
+        <div className={cn("flex items-center gap-2.5 px-2 py-2 mt-1 rounded-lg hover:bg-slate-800/40 transition-colors", collapsed && !mobile && "justify-center px-0")}>
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center shrink-0 shadow">
-            <span className="text-[10px] font-bold text-white">SK</span>
+            <span className="text-[10px] font-bold text-white">{initials}</span>
           </div>
           {(!collapsed || mobile) && (
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-300 truncate">Sarah Kim</p>
-              <p className="text-[10px] text-slate-600 truncate">Administrator</p>
+              <p className="text-xs font-semibold text-slate-300 truncate">{userName}</p>
+              <p className="text-[10px] text-slate-500 truncate">{userRole}</p>
             </div>
+          )}
+          {(!collapsed || mobile) && (
+            <button onClick={logout} title="Sign Out" className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors cursor-pointer">
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           )}
         </div>
       </div>
@@ -452,7 +462,8 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
 function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
   screen: string; setCommandOpen: (o: boolean) => void; setNotifOpen: (o: boolean) => void; unread: number;
 }) {
-  const { refreshData, isLoading } = useStockFlow();
+  const { currentUser, logout, refreshData, isLoading } = useStockFlow();
+  const initials = currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "BS";
   const labels: Record<string, string> = {
     dashboard: "Executive Dashboard", inventory: "Inventory Management",
     sales: "Sales", purchase: "Purchasing", finance: "Finance",
@@ -491,8 +502,9 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
           <Bell className="w-4 h-4" />
           {unread > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-[#0F172A]" />}
         </button>
-        <div className="ml-1 w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center cursor-pointer shadow">
-          <span className="text-[10px] font-bold text-white">SK</span>
+        <div onClick={logout} title={`Signed in as ${currentUser?.name || 'Admin'} (${currentUser?.email || ''}) — Click to Sign Out`}
+          className="ml-1 w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center cursor-pointer shadow hover:opacity-90 transition-opacity">
+          <span className="text-[10px] font-bold text-white">{initials}</span>
         </div>
       </div>
     </header>
@@ -2450,60 +2462,149 @@ function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => vo
 // AUTH SCREEN
 // ═══════════════════════════════════════════════════════════
 
-function AuthScreen({ onEnter }: { onEnter: () => void }) {
-  const [email, setEmail] = useState("sarah@stockflow.io");
-  const [password, setPassword] = useState("••••••••••");
-  const [loading, setLoading] = useState(false);
+function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
+  const { login, signup } = useStockFlow();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  
+  // Form fields
+  const [email, setEmail] = useState("bilalshoukatcrm@gmail.com");
+  const [password, setPassword] = useState("crm1234");
+  const [fullName, setFullName] = useState("");
+  const [company, setCompany] = useState("StockFlow ERP Platform");
+  const [role, setRole] = useState("Admin");
 
-  const handleLogin = () => {
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      if (mode === "signin") {
+        const res = await login(email, password);
+        if (res.success) {
+          onSuccess();
+        } else {
+          setErrorMsg(res.error || "Authentication failed.");
+        }
+      } else {
+        const res = await signup(fullName, email, password, company, role);
+        if (res.success) {
+          onSuccess();
+        } else {
+          setErrorMsg(res.error || "Failed to create account.");
+        }
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "An unexpected error occurred.");
+    } finally {
       setLoading(false);
-      onEnter();
-    }, 600);
+    }
   };
 
   return (
     <div className="min-h-screen flex bg-[#F8FAFC] dark:bg-[#0F172A]">
-      <div className="w-full lg:w-[460px] flex flex-col justify-center px-8 py-12 shrink-0">
+      <div className="w-full lg:w-[480px] flex flex-col justify-center px-8 py-12 shrink-0">
         <div className="max-w-sm mx-auto w-full">
           <StockFlowLogo size="md" darkText />
 
-          <div className="mt-10 mb-7">
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Welcome back</h1>
-            <p className="text-sm text-slate-500 mt-1">Sign in to your StockFlow workspace</p>
+          <div className="mt-8 mb-6">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              {mode === "signin" ? "Welcome back" : "Create an Account"}
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              {mode === "signin" ? "Sign in to access your StockFlow workspace" : "Register your credentials to get full enterprise access"}
+            </p>
           </div>
 
-          <div className="space-y-4">
+          {errorMsg && (
+            <div className="mb-5 p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-xs font-semibold text-red-600 dark:text-red-400 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === "signup" && (
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">Full Name</label>
+                <Inp value={fullName} onChange={setFullName} placeholder="Bilal Shoukat" icon={<User className="w-3.5 h-3.5" />} />
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">Email address</label>
-              <Inp value={email} onChange={setEmail} type="email" placeholder="you@company.com" icon={<Mail className="w-3.5 h-3.5" />} />
+              <Inp value={email} onChange={setEmail} type="email" placeholder="bilalshoukatcrm@gmail.com" icon={<Mail className="w-3.5 h-3.5" />} />
             </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">Password</label>
-              <Inp value={password} onChange={setPassword} type="password" icon={<Lock className="w-3.5 h-3.5" />} />
+              <Inp value={password} onChange={setPassword} type="password" placeholder="••••••••" icon={<Lock className="w-3.5 h-3.5" />} />
             </div>
-            <button onClick={handleLogin} disabled={loading}
-              className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl py-2.5 text-sm font-bold transition-colors shadow-sm shadow-blue-600/20 flex items-center justify-center gap-2">
-              {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-              Sign in to Dashboard
-            </button>
-          </div>
 
-          <button onClick={onEnter} className="mt-6 w-full text-center text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-            Skip login — enter platform →
-          </button>
+            {mode === "signup" && (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">Company / Organization</label>
+                  <Inp value={company} onChange={setCompany} placeholder="StockFlow ERP Platform" icon={<Building2 className="w-3.5 h-3.5" />} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">Role</label>
+                  <select value={role} onChange={e => setRole(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20">
+                    <option value="Admin">Admin</option>
+                    <option value="Manager">Manager</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Sales">Sales</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            <button type="submit" disabled={loading}
+              className="w-full bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl py-2.5 text-sm font-bold transition-all shadow-sm shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer">
+              {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+              {mode === "signin" ? "Sign In to Workspace" : "Register Account & Sign In"}
+            </button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800 text-center">
+            {mode === "signin" ? (
+              <p className="text-xs text-slate-500">
+                Don't have an account?{" "}
+                <button type="button" onClick={() => { setMode("signup"); setErrorMsg(null); }} className="font-bold text-[#2563EB] hover:underline cursor-pointer">
+                  Sign Up
+                </button>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                Already have an account?{" "}
+                <button type="button" onClick={() => { setMode("signin"); setErrorMsg(null); }} className="font-bold text-[#2563EB] hover:underline cursor-pointer">
+                  Sign In
+                </button>
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="hidden lg:flex flex-1 flex-col justify-between bg-[#0B1120] p-12 relative overflow-hidden">
-        <div className="relative">
+        <div className="relative z-10">
           <div className="mb-14">
             <StockFlowLogo size="lg" />
           </div>
-          <h2 className="text-4xl font-black text-white leading-[1.1] tracking-tight max-w-xs">
-            The operating system for modern commerce.
+          <h2 className="text-4xl font-black text-white leading-[1.1] tracking-tight max-w-sm">
+            Enterprise ERP Operating System for Modern Commerce.
           </h2>
+          <p className="text-sm text-slate-400 mt-4 max-w-sm leading-relaxed">
+            Real-time inventory sync, automated financial accounting, CRM tracking, and BI analytics designed for high-growth enterprises.
+          </p>
+        </div>
+        <div className="relative z-10 border-t border-slate-800/80 pt-6 flex items-center justify-between text-xs text-slate-500">
+          <span>© 2026 StockFlow ERP Inc.</span>
+          <span className="font-mono">v3.2.1 Enterprise Edition</span>
         </div>
       </div>
     </div>
@@ -2613,7 +2714,7 @@ function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => vo
 // ═══════════════════════════════════════════════════════════
 
 function MainAppShell() {
-  const { notifications } = useStockFlow();
+  const { notifications, isAuthenticated } = useStockFlow();
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [dark, setDark] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -2655,10 +2756,10 @@ function MainAppShell() {
     }
   };
 
-  if (screen === "auth") {
+  if (!isAuthenticated) {
     return (
       <div className={cn("contents", dark && "dark")}>
-        <AuthScreen onEnter={() => setScreen("dashboard")} />
+        <AuthScreen onSuccess={() => setScreen("dashboard")} />
       </div>
     );
   }

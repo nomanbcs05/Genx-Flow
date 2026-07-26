@@ -158,3 +158,23 @@ INSERT INTO public.customers (id, name, company, email, orders, spend, status, t
   ('CUS-005', 'Yuki Tanaka', 'Quantum Dynamics LLC', 'y.tanaka@qdynamics.co', 12, 38200.00, 'active', 'professional'),
   ('CUS-006', 'Elena Novak', 'Vertex Global Partners', 'e.novak@vertexglobal.eu', 9, 29450.00, 'inactive', 'growth')
 ON CONFLICT (id) DO NOTHING;
+
+-- 8. USERS TABLE
+CREATE TABLE IF NOT EXISTS public.users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'Admin',
+  company TEXT NOT NULL DEFAULT 'StockFlow ERP',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all access users" ON public.users;
+CREATE POLICY "Allow public all access users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+
+INSERT INTO public.users (id, name, email, password, role, company) VALUES
+  ('usr-001', 'Bilal Shoukat', 'bilalshoukatcrm@gmail.com', 'crm1234', 'Admin', 'StockFlow ERP Platform'),
+  ('usr-002', 'Sarah Kim', 'sarah@stockflow.io', 'admin123', 'Admin', 'StockFlow Technologies Inc.')
+ON CONFLICT (email) DO NOTHING;

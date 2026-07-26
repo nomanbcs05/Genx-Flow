@@ -72,6 +72,22 @@ export interface NotificationItem {
   read: boolean;
 }
 
+export interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  password?: string;
+  role: string;
+  company: string;
+  avatar?: string;
+  createdAt?: string;
+}
+
+export const INITIAL_USERS: UserAccount[] = [
+  { id: "usr-001", name: "Bilal Shoukat", email: "bilalshoukatcrm@gmail.com", password: "crm1234", role: "Admin", company: "StockFlow ERP Platform" },
+  { id: "usr-002", name: "Sarah Kim", email: "sarah@stockflow.io", password: "admin123", role: "Admin", company: "StockFlow Technologies Inc." },
+];
+
 // Initial Mock Data Fallback
 export const INITIAL_PRODUCTS: Product[] = [
   { id: "P001", sku: "ELC-MON-4K-27", name: "ProVision 4K Monitor 27\"", cat: "Electronics", qty: 142, min: 20, price: 449.99, status: "in_stock", wh: "WH-01" },
@@ -145,6 +161,9 @@ interface StockFlowContextType {
   customers: Customer[];
   activities: Activity[];
   notifications: NotificationItem[];
+  users: UserAccount[];
+  currentUser: UserAccount | null;
+  isAuthenticated: boolean;
   isSupabaseConnected: boolean;
   supabaseUrl: string;
   supabaseKey: string;
@@ -154,6 +173,11 @@ interface StockFlowContextType {
   categories: string[];
   addCategory: (cat: string) => void;
   
+  // Auth Actions
+  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string; user?: UserAccount }>;
+  signup: (name: string, email: string, pass: string, company?: string, role?: string) => Promise<{ success: boolean; error?: string; user?: UserAccount }>;
+  logout: () => void;
+
   // Actions
   addProduct: (product: Omit<Product, 'id' | 'status'> & { id?: string }) => Promise<void>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
@@ -219,6 +243,25 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
   });
 
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    const saved = localStorage.getItem('sf_users');
+    return saved ? JSON.parse(saved) : INITIAL_USERS;
+  });
+
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    const savedSession = localStorage.getItem('sf_auth_session');
+    if (savedSession) {
+      try {
+        return JSON.parse(savedSession);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const isAuthenticated = !!currentUser;
+
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('sf_categories');
     return saved ? JSON.parse(saved) : ["Electronics", "Furniture", "Stationery", "Accessories"];
@@ -247,6 +290,120 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => { localStorage.setItem('sf_activities', JSON.stringify(activities)); }, [activities]);
   useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);
+  useEffect(() => { localStorage.setItem('sf_users', JSON.stringify(users)); }, [users]);
+
+  // Auth Action Handlers
+  const login = async (email: string, pass: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    let match = users.find(u => u.email.toLowerCase() === cleanEmail);
+
+    const sb = getSupabase();
+    if (sb) {
+      try {
+        const { data, error } = await sb.from('users').select('*').eq('email', cleanEmail).single();
+        if (data && !error) {
+          match = {
+            id: data.id,
+            name: data.name,
+            email: data.email,
+            password: data.password,
+            role: data.role,
+            company: data.company,
+          };
+          setUsers(prev => {
+            const exists = prev.some(u => u.id === data.id);
+            return exists ? prev.map(u => u.id === data.id ? match! : u) : [...prev, match!];
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase user fetch fallback:', err);
+      }
+    }
+
+    if (!match) {
+      return { success: false, error: 'No account found with this email. Please sign up first.' };
+    }
+
+    if (match.password && match.password !== cleanPass) {
+      return { success: false, error: 'Incorrect password. Please verify your credentials and try again.' };
+    }
+
+    const sessionUser: UserAccount = {
+      id: match.id,
+      name: match.name,
+      email: match.email,
+      role: match.role || 'Admin',
+      company: match.company || 'StockFlow ERP Platform',
+    };
+
+    setCurrentUser(sessionUser);
+    localStorage.setItem('sf_auth_session', JSON.stringify(sessionUser));
+    await addActivity('user', 'User Signed In', `${sessionUser.name} signed in`);
+    return { success: true, user: sessionUser };
+  };
+
+  const signup = async (name: string, email: string, pass: string, company = 'StockFlow ERP', role = 'Admin') => {
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    if (!cleanName || !cleanEmail || !cleanPass) {
+      return { success: false, error: 'Full name, email address, and password are required.' };
+    }
+
+    const existing = users.some(u => u.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      return { success: false, error: 'An account with this email address already exists. Please sign in.' };
+    }
+
+    const newUser: UserAccount = {
+      id: `usr-${Date.now()}`,
+      name: cleanName,
+      email: cleanEmail,
+      password: cleanPass,
+      company: company.trim() || 'StockFlow ERP',
+      role: role || 'Admin',
+      createdAt: new Date().toISOString(),
+    };
+
+    setUsers(prev => [...prev, newUser]);
+
+    const sb = getSupabase();
+    if (sb) {
+      try {
+        await sb.from('users').insert({
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          password: newUser.password,
+          role: newUser.role,
+          company: newUser.company,
+        });
+      } catch (err) {
+        console.warn('Supabase user insert warning:', err);
+      }
+    }
+
+    const sessionUser: UserAccount = {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role,
+      company: newUser.company,
+    };
+
+    setCurrentUser(sessionUser);
+    localStorage.setItem('sf_auth_session', JSON.stringify(sessionUser));
+    await addActivity('user', 'New User Registered', `${newUser.name} created account (${newUser.email})`);
+    return { success: true, user: sessionUser };
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('sf_auth_session');
+  };
 
   // Check Supabase on Mount
   useEffect(() => {
@@ -689,8 +846,14 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       customers,
       activities,
       notifications,
+      users,
+      currentUser,
+      isAuthenticated,
       categories,
       addCategory,
+      login,
+      signup,
+      logout,
       isSupabaseConnected,
       supabaseUrl,
       supabaseKey,
