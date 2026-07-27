@@ -2403,10 +2403,33 @@ function ReportsScreen() {
 // ═══════════════════════════════════════════════════════════
 
 function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => void }) {
+  const {
+    isDatabaseCleaned,
+    ownerPasscode,
+    setOwnerPasscode,
+    clearAllDatabaseData,
+    restoreDemoData,
+    exportDatabaseBackup,
+    currentUser,
+    products, invoices, purchaseOrders, vendors, customers
+  } = useStockFlow();
+
   const [tab, setTab] = useState("Company");
-  const tabs = ["Company", "Users & Roles", "Billing", "Security"];
+  const tabs = ["Company", "Users & Roles", "Database & Security", "Billing", "Security"];
   const [companyName, setCompanyName] = useState("StockFlow Technologies Inc.");
   const [adminEmail, setAdminEmail] = useState("admin@stockflow.io");
+
+  // Passcode modal / action states
+  const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
+  const [modalAction, setModalAction] = useState<"purge" | "restore" | null>(null);
+  const [passcodeInput, setPasscodeInput] = useState("");
+  const [passcodeError, setPasscodeError] = useState("");
+  const [passcodeSuccess, setPasscodeSuccess] = useState("");
+
+  // Passcode change states
+  const [newPasscode, setNewPasscode] = useState("");
+  const [confirmPasscode, setConfirmPasscode] = useState("");
+  const [passcodeUpdateMsg, setPasscodeUpdateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const TEAM = [
     { name: "Sarah Kim", email: "sarah@stockflow.io", role: "Admin", status: "active", last: "Just now" },
@@ -2415,14 +2438,68 @@ function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => vo
     { name: "Priya Nair", email: "priya@stackflow.io", role: "Sales", status: "active", last: "3h ago" },
   ];
 
+  const handleExecutePasscodeAction = async () => {
+    setPasscodeError("");
+    setPasscodeSuccess("");
+
+    if (!passcodeInput.trim()) {
+      setPasscodeError("Please enter your owner security passcode or password.");
+      return;
+    }
+
+    if (modalAction === "purge") {
+      const res = await clearAllDatabaseData(passcodeInput);
+      if (!res.success) {
+        setPasscodeError(res.error || "Invalid security passcode.");
+      } else {
+        setPasscodeSuccess("Database cleaned successfully! All sample demo data purged.");
+        setPasscodeInput("");
+        setTimeout(() => {
+          setPasscodeModalOpen(false);
+          setModalAction(null);
+          setPasscodeSuccess("");
+        }, 1500);
+      }
+    } else if (modalAction === "restore") {
+      const res = await restoreDemoData(passcodeInput);
+      if (!res.success) {
+        setPasscodeError(res.error || "Invalid security passcode.");
+      } else {
+        setPasscodeSuccess("Demo sample data restored successfully.");
+        setPasscodeInput("");
+        setTimeout(() => {
+          setPasscodeModalOpen(false);
+          setModalAction(null);
+          setPasscodeSuccess("");
+        }, 1500);
+      }
+    }
+  };
+
+  const handleUpdatePasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasscodeUpdateMsg(null);
+    if (!newPasscode.trim()) {
+      setPasscodeUpdateMsg({ type: "error", text: "Please enter a valid new passcode." });
+      return;
+    }
+    if (newPasscode !== confirmPasscode) {
+      setPasscodeUpdateMsg({ type: "error", text: "Passcodes do not match." });
+      return;
+    }
+    setOwnerPasscode(newPasscode);
+    setPasscodeUpdateMsg({ type: "success", text: "Owner passcode updated successfully!" });
+    setNewPasscode("");
+    setConfirmPasscode("");
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-[900px] mx-auto">
       <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Manage your organization, users, billing, and security</p>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Settings & System Controls</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Manage your organization, database security, owner passcode, and system storage</p>
       </div>
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
-
 
       {tab === "Company" && (
         <Card className="p-6 space-y-5">
@@ -2474,6 +2551,146 @@ function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => vo
         </Card>
       )}
 
+      {tab === "Database & Security" && (
+        <div className="space-y-6">
+          {/* Status Card */}
+          <Card className="p-5 border-l-4 border-l-blue-600">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Database className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">System Database Status</h3>
+                  {isDatabaseCleaned ? (
+                    <Badge variant="emerald" dot>Clean Database (0 Demo Items)</Badge>
+                  ) : (
+                    <Badge variant="amber" dot>Demo Data Active</Badge>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {isDatabaseCleaned
+                    ? "Database is purged and clean. All data added will be permanently preserved across reloads & devices."
+                    : "Currently showing initial sample demo data. You can purge demo data below to start with a clean database for your real operational data."}
+                </p>
+                <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-600 dark:text-slate-400">
+                  <span>Products: <strong>{products.length}</strong></span>
+                  <span>Invoices: <strong>{invoices.length}</strong></span>
+                  <span>Orders: <strong>{purchaseOrders.length}</strong></span>
+                  <span>Vendors: <strong>{vendors.length}</strong></span>
+                  <span>Customers: <strong>{customers.length}</strong></span>
+                </div>
+              </div>
+
+              <button
+                onClick={exportDatabaseBackup}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-2 transition shrink-0"
+              >
+                <Download className="w-4 h-4 text-blue-500" />
+                Export Backup (JSON)
+              </button>
+            </div>
+          </Card>
+
+          {/* Purge Demo Data Card */}
+          <Card className="p-5 border border-red-500/30 bg-red-950/10 dark:bg-red-950/20">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Trash2 className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    Purge All Demo/Mock Data
+                    <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full font-bold uppercase">Passcode Protected</span>
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-lg">
+                    Completely clear all initial demo products, invoices, vendors, and customers so you can start adding your own real business data. Protected by Owner Passcode.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => {
+                    setModalAction("purge");
+                    setPasscodeError("");
+                    setPasscodeSuccess("");
+                    setPasscodeInput("");
+                    setPasscodeModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  Clear & Wipe Demo Data
+                </button>
+
+                {isDatabaseCleaned && (
+                  <button
+                    onClick={() => {
+                      setModalAction("restore");
+                      setPasscodeError("");
+                      setPasscodeSuccess("");
+                      setPasscodeInput("");
+                      setPasscodeModalOpen(true);
+                    }}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl transition"
+                  >
+                    Restore Demo
+                  </button>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          {/* Change Owner Passcode Card */}
+          <Card className="p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                <Shield className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Owner Security Passcode & Protection</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Set your custom security passcode to prevent unauthorized database resets or deletions. (Default passcode: <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-blue-500 font-mono">1234</code> or your account password)
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdatePasscode} className="space-y-3 max-w-md pt-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">New Passcode</label>
+                  <Inp
+                    type="password"
+                    placeholder="Enter new 4-8 digit passcode"
+                    value={newPasscode}
+                    onChange={setNewPasscode}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Confirm Passcode</label>
+                  <Inp
+                    type="password"
+                    placeholder="Confirm passcode"
+                    value={confirmPasscode}
+                    onChange={setConfirmPasscode}
+                  />
+                </div>
+              </div>
+
+              {passcodeUpdateMsg && (
+                <p className={cn("text-xs font-medium", passcodeUpdateMsg.type === "success" ? "text-emerald-500" : "text-red-500")}>
+                  {passcodeUpdateMsg.text}
+                </p>
+              )}
+
+              <Btn size="sm" type="submit" icon={<Key className="w-3.5 h-3.5" />}>
+                Update Security Passcode
+              </Btn>
+            </form>
+          </Card>
+        </div>
+      )}
+
       {tab === "Billing" && (
         <div className="space-y-4">
           <Card className="p-5">
@@ -2509,6 +2726,89 @@ function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => vo
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Security Passcode Verification Modal */}
+      {passcodeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 font-bold shadow-md">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">
+                    {modalAction === "purge" ? "Purge Demo Data" : "Restore Demo Data"}
+                  </h3>
+                  <p className="text-xs text-slate-400">Owner Security Passcode Verification</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPasscodeModalOpen(false)}
+                className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-xl transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {modalAction === "purge"
+                  ? "This action will clear all current sample demo products, invoices, purchase orders, vendors, and customers. Please enter your Owner Passcode or Account Password to confirm."
+                  : "This action will reload the sample demo data. Enter your Owner Passcode to confirm."}
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Owner Passcode or Password (Default: <code className="text-blue-400">1234</code>)
+                </label>
+                <input
+                  type="password"
+                  autoFocus
+                  placeholder="Enter passcode..."
+                  value={passcodeInput}
+                  onChange={(e) => setPasscodeInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleExecutePasscodeAction(); }}
+                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                />
+              </div>
+
+              {passcodeError && (
+                <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/30 text-red-400 text-xs font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {passcodeError}
+                </div>
+              )}
+
+              {passcodeSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  {passcodeSuccess}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPasscodeModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExecutePasscodeAction}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-xs font-bold text-white transition shadow-lg active:scale-95 flex items-center gap-1.5",
+                  modalAction === "purge" ? "bg-red-600 hover:bg-red-500 shadow-red-600/30" : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/30"
+                )}
+              >
+                <Check className="w-4 h-4" />
+                Confirm {modalAction === "purge" ? "Wipe Data" : "Restore Data"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

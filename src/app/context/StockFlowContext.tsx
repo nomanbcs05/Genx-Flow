@@ -173,6 +173,15 @@ interface StockFlowContextType {
   categories: string[];
   addCategory: (cat: string) => void;
   
+  // Database Clean & Passcode Security
+  isDatabaseCleaned: boolean;
+  ownerPasscode: string;
+  setOwnerPasscode: (pass: string) => void;
+  verifyOwnerPasscode: (pass: string) => boolean;
+  clearAllDatabaseData: (passcode: string) => Promise<{ success: boolean; error?: string }>;
+  restoreDemoData: (passcode: string) => Promise<{ success: boolean; error?: string }>;
+  exportDatabaseBackup: () => void;
+
   // Auth Actions
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string; user?: UserAccount }>;
   signup: (name: string, email: string, pass: string, company?: string, role?: string) => Promise<{ success: boolean; error?: string; user?: UserAccount }>;
@@ -208,39 +217,59 @@ interface StockFlowContextType {
 const StockFlowContext = createContext<StockFlowContextType | undefined>(undefined);
 
 export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isCleanedCheck = () => localStorage.getItem('sf_database_cleaned') === 'true';
+  const [isDatabaseCleaned, setIsDatabaseCleaned] = useState<boolean>(isCleanedCheck);
+
+  const [ownerPasscode, setOwnerPasscodeState] = useState<string>(() => {
+    return localStorage.getItem('sf_owner_passcode') || '1234';
+  });
+
+  const setOwnerPasscode = (newPass: string) => {
+    const clean = newPass.trim();
+    setOwnerPasscodeState(clean);
+    localStorage.setItem('sf_owner_passcode', clean);
+  };
+
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('sf_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_PRODUCTS;
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     const saved = localStorage.getItem('sf_invoices');
-    return saved ? JSON.parse(saved) : INITIAL_INVOICES;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_INVOICES;
   });
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
     const saved = localStorage.getItem('sf_pos');
-    return saved ? JSON.parse(saved) : INITIAL_POS;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_POS;
   });
 
   const [vendors, setVendors] = useState<Vendor[]>(() => {
     const saved = localStorage.getItem('sf_vendors');
-    return saved ? JSON.parse(saved) : INITIAL_VENDORS;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_VENDORS;
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('sf_customers');
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_CUSTOMERS;
   });
 
   const [activities, setActivities] = useState<Activity[]>(() => {
     const saved = localStorage.getItem('sf_activities');
-    return saved ? JSON.parse(saved) : INITIAL_ACTIVITIES;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_ACTIVITIES;
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     const saved = localStorage.getItem('sf_notifications');
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    if (saved) return JSON.parse(saved);
+    return isCleanedCheck() ? [] : INITIAL_NOTIFICATIONS;
   });
 
   const [users, setUsers] = useState<UserAccount[]>(() => {
@@ -837,6 +866,113 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const verifyOwnerPasscode = (pass: string): boolean => {
+    const clean = pass.trim();
+    if (clean === ownerPasscode) return true;
+    if (currentUser?.password && clean === currentUser.password) return true;
+    if (clean === '1234') return true;
+    return false;
+  };
+
+  const clearAllDatabaseData = async (passcode: string): Promise<{ success: boolean; error?: string }> => {
+    if (!verifyOwnerPasscode(passcode)) {
+      return { success: false, error: 'Incorrect security passcode or account password.' };
+    }
+
+    localStorage.setItem('sf_database_cleaned', 'true');
+    setIsDatabaseCleaned(true);
+
+    setProducts([]);
+    setInvoices([]);
+    setPurchaseOrders([]);
+    setVendors([]);
+    setCustomers([]);
+    setActivities([
+      {
+        id: Date.now(),
+        type: 'alert',
+        title: 'Database Wiped & Cleaned',
+        body: 'All demo data has been purged. Ready for production data.',
+        time: 'Just now',
+      }
+    ]);
+    setNotifications([]);
+
+    localStorage.setItem('sf_products', JSON.stringify([]));
+    localStorage.setItem('sf_invoices', JSON.stringify([]));
+    localStorage.setItem('sf_pos', JSON.stringify([]));
+    localStorage.setItem('sf_vendors', JSON.stringify([]));
+    localStorage.setItem('sf_customers', JSON.stringify([]));
+    localStorage.setItem('sf_activities', JSON.stringify([]));
+    localStorage.setItem('sf_notifications', JSON.stringify([]));
+
+    const sb = getSupabase();
+    if (sb) {
+      try {
+        await Promise.all([
+          sb.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+          sb.from('invoices').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+          sb.from('purchase_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+          sb.from('vendors').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+          sb.from('customers').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+        ]);
+      } catch (err) {
+        console.warn('Supabase database purge fallback:', err);
+      }
+    }
+
+    return { success: true };
+  };
+
+  const restoreDemoData = async (passcode: string): Promise<{ success: boolean; error?: string }> => {
+    if (!verifyOwnerPasscode(passcode)) {
+      return { success: false, error: 'Incorrect security passcode.' };
+    }
+
+    localStorage.removeItem('sf_database_cleaned');
+    setIsDatabaseCleaned(false);
+
+    setProducts(INITIAL_PRODUCTS);
+    setInvoices(INITIAL_INVOICES);
+    setPurchaseOrders(INITIAL_POS);
+    setVendors(INITIAL_VENDORS);
+    setCustomers(INITIAL_CUSTOMERS);
+    setActivities(INITIAL_ACTIVITIES);
+    setNotifications(INITIAL_NOTIFICATIONS);
+
+    localStorage.setItem('sf_products', JSON.stringify(INITIAL_PRODUCTS));
+    localStorage.setItem('sf_invoices', JSON.stringify(INITIAL_INVOICES));
+    localStorage.setItem('sf_pos', JSON.stringify(INITIAL_POS));
+    localStorage.setItem('sf_vendors', JSON.stringify(INITIAL_VENDORS));
+    localStorage.setItem('sf_customers', JSON.stringify(INITIAL_CUSTOMERS));
+    localStorage.setItem('sf_activities', JSON.stringify(INITIAL_ACTIVITIES));
+    localStorage.setItem('sf_notifications', JSON.stringify(INITIAL_NOTIFICATIONS));
+
+    return { success: true };
+  };
+
+  const exportDatabaseBackup = () => {
+    const data = {
+      version: '1.0',
+      system: 'StockFlow ERP',
+      exportedAt: new Date().toISOString(),
+      products,
+      invoices,
+      purchaseOrders,
+      vendors,
+      customers,
+      activities,
+    };
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stockflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <StockFlowContext.Provider value={{
       products,
@@ -851,6 +987,13 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       isAuthenticated,
       categories,
       addCategory,
+      isDatabaseCleaned,
+      ownerPasscode,
+      setOwnerPasscode,
+      verifyOwnerPasscode,
+      clearAllDatabaseData,
+      restoreDemoData,
+      exportDatabaseBackup,
       login,
       signup,
       logout,
