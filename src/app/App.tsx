@@ -52,76 +52,7 @@ type Screen =
   | "dashboard" | "inventory" | "sales" | "purchase"
   | "finance" | "crm" | "reports" | "settings";
 
-const REVENUE_DATA = [
-  { month: "Jan", revenue: 1820000, profit: 680000 },
-  { month: "Feb", revenue: 1950000, profit: 720000 },
-  { month: "Mar", revenue: 2100000, profit: 810000 },
-  { month: "Apr", revenue: 1880000, profit: 690000 },
-  { month: "May", revenue: 2340000, profit: 920000 },
-  { month: "Jun", revenue: 2180000, profit: 840000 },
-  { month: "Jul", revenue: 2520000, profit: 990000 },
-  { month: "Aug", revenue: 2380000, profit: 910000 },
-  { month: "Sep", revenue: 2650000, profit: 1050000 },
-  { month: "Oct", revenue: 2470000, profit: 960000 },
-  { month: "Nov", revenue: 2780000, profit: 1120000 },
-  { month: "Dec", revenue: 2847000, profit: 1180000 },
-];
-
-const CHANNEL_DATA = [
-  { channel: "Direct", orders: 384, value: 1240 },
-  { channel: "Online", orders: 521, value: 890 },
-  { channel: "Wholesale", orders: 142, value: 620 },
-  { channel: "Partner", orders: 89, value: 340 },
-  { channel: "Retail", orders: 111, value: 280 },
-];
-
-const PL_DATA = [
-  { label: "Revenue", q1: 5870000, q2: 6400000, q3: 7550000, q4: 8097000, type: "revenue" },
-  { label: "Cost of Goods Sold", q1: 2200000, q2: 2380000, q3: 2720000, q4: 2890000, type: "cost" },
-  { label: "Gross Profit", q1: 3670000, q2: 4020000, q3: 4830000, q4: 5207000, type: "profit" },
-  { label: "Operating Expenses", q1: 1240000, q2: 1350000, q3: 1480000, q4: 1560000, type: "sub" },
-  { label: "Marketing & Sales", q1: 480000, q2: 520000, q3: 590000, q4: 630000, type: "sub" },
-  { label: "General & Admin", q1: 320000, q2: 340000, q3: 360000, q4: 380000, type: "sub" },
-  { label: "EBITDA", q1: 1630000, q2: 1810000, q3: 2400000, q4: 2637000, type: "profit" },
-  { label: "Net Income", q1: 1510000, q2: 1685000, q3: 2270000, q4: 2502000, type: "profit" },
-];
-
-const CASHFLOW_DATA = [
-  { month: "Jul", operating: 890, investing: -240, financing: -180 },
-  { month: "Aug", operating: 920, investing: -180, financing: -200 },
-  { month: "Sep", operating: 1050, investing: -320, financing: -150 },
-  { month: "Oct", operating: 960, investing: -200, financing: -220 },
-  { month: "Nov", operating: 1120, investing: -280, financing: -190 },
-  { month: "Dec", operating: 1180, investing: -340, financing: -210 },
-];
-
-const AI_INSIGHTS = [
-  { id: 1, type: "opportunity", title: "Bundle Revenue Opportunity", body: "USB-C Hub 7-in-1 shows 340% higher conversion when bundled with monitors. Projected uplift: +$84K MRR.", impact: "high" },
-  { id: 2, type: "risk", title: "Supply Chain Variance", body: "3 SKUs from Summit Electronics have 8-day lead time variance. Recommend buffer stock +15% for Q1 demand surge.", impact: "medium" },
-  { id: 3, type: "churn", title: "Customer Churn Signal", body: "Blue Horizon Corp. order frequency down 60% over 90 days. Last touchpoint: 47 days ago. Immediate outreach recommended.", impact: "high" },
-];
-
-const BALANCE_SHEET = {
-  assets: [
-    { label: "Cash & Equivalents", value: 4820000 },
-    { label: "Accounts Receivable", value: 2140000 },
-    { label: "Inventory", value: 2184920 },
-    { label: "Prepaid Expenses", value: 284000 },
-    { label: "Property & Equipment", value: 8420000 },
-    { label: "Intangible Assets", value: 1240000 },
-  ],
-  liabilities: [
-    { label: "Accounts Payable", value: 1820000 },
-    { label: "Short-term Loans", value: 500000 },
-    { label: "Deferred Revenue", value: 340000 },
-    { label: "Long-term Debt", value: 3400000 },
-    { label: "Deferred Tax", value: 280000 },
-  ],
-  equity: [
-    { label: "Common Stock", value: 5000000 },
-    { label: "Retained Earnings", value: 6748920 },
-  ],
-};
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // ═══════════════════════════════════════════════════════════
 // UTILITIES & ATOMS
@@ -576,7 +507,45 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
   const { products, invoices, purchaseOrders, refreshData, isLoading, currentUser } = useStockFlow();
   const [insightIdx, setInsightIdx] = useState(0);
 
-  const totalRev = invoices.reduce((s, i) => s + (i.status === 'paid' ? i.amount : 0), 2847392);
+  // ── Dynamic KPI calculations from live data ──
+  const totalRev = invoices.reduce((s, i) => s + (i.status === 'paid' ? i.amount : 0), 0);
+  const totalCost = purchaseOrders.reduce((s, po) => s + (po.total ?? 0), 0);
+  const grossMarginPct = totalRev > 0 ? (((totalRev - totalCost) / totalRev) * 100).toFixed(1) + '%' : '0.0%';
+
+  // Revenue & Profit per month — built from real invoices
+  const revenueChartData = useMemo(() => {
+    const byMonth: Record<string, { revenue: number; profit: number }> = {};
+    MONTH_LABELS.forEach(m => { byMonth[m] = { revenue: 0, profit: 0 }; });
+    invoices.forEach(inv => {
+      if (!inv.date) return;
+      const d = new Date(inv.date);
+      if (isNaN(d.getTime())) return;
+      const m = MONTH_LABELS[d.getMonth()];
+      if (!m) return;
+      byMonth[m].revenue += inv.amount || 0;
+      if (inv.status === 'paid') byMonth[m].profit += inv.amount || 0;
+    });
+    // deduct PO costs from profit proportionally across months
+    purchaseOrders.forEach(po => {
+      const d = new Date(po.date ?? '');
+      if (isNaN(d.getTime())) return;
+      const m = MONTH_LABELS[d.getMonth()];
+      if (!m) return;
+      byMonth[m].profit -= po.total ?? 0;
+    });
+    return MONTH_LABELS.map(m => ({ month: m, revenue: Math.max(0, byMonth[m].revenue), profit: Math.max(0, byMonth[m].profit) }));
+  }, [invoices, purchaseOrders]);
+
+  // Orders by channel — derived from invoice notes/channel field or fallback to 'Direct'
+  const channelChartData = useMemo(() => {
+    const map: Record<string, number> = {};
+    invoices.forEach(inv => {
+      const ch = (inv as any).channel || 'Direct';
+      map[ch] = (map[ch] || 0) + 1;
+    });
+    if (Object.keys(map).length === 0) return [{ channel: 'Direct', orders: 0 }];
+    return Object.entries(map).map(([channel, orders]) => ({ channel, orders })).sort((a, b) => b.orders - a.orders);
+  }, [invoices]);
   const lowStockCount = products.filter(p => p.status === 'low_stock' || p.status === 'out_of_stock').length;
 
   // Dynamic AI Insights calculated directly from real live system data
@@ -742,11 +711,11 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
         <StatCard label="Revenue MTD" value={fmtC(totalRev)}
           delta={18.4} deltaLabel="vs last mo."
           icon={<DollarSign className="w-5 h-5 text-blue-600" />} iconBg="bg-blue-50 dark:bg-blue-950/50" />
-        <StatCard label="Total Orders" value={fmtN(invoices.length + 1240)}
-          delta={12.1} deltaLabel="vs last mo."
+        <StatCard label="Total Orders" value={fmtN(invoices.length)}
+          delta={0} deltaLabel="total invoices"
           icon={<ShoppingCart className="w-5 h-5 text-emerald-600" />} iconBg="bg-emerald-50 dark:bg-emerald-950/50" />
-        <StatCard label="Gross Margin" value="68.2%"
-          delta={2.3} deltaLabel="vs last mo."
+        <StatCard label="Gross Margin" value={grossMarginPct}
+          delta={0} deltaLabel="revenue vs cost"
           icon={<TrendingUp className="w-5 h-5 text-purple-600" />} iconBg="bg-purple-50 dark:bg-purple-950/50" mono={false} />
         <StatCard label="Low Stock Alerts" value={String(lowStockCount)}
           delta={-8} deltaLabel="vs last week"
@@ -764,7 +733,7 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
             <Badge variant="blue">FY 2024</Badge>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={REVENUE_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+            <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
               <defs>
                 <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#2563EB" stopOpacity={0.12} />
@@ -795,7 +764,7 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
             </div>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={CHANNEL_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+            <BarChart data={channelChartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
               <XAxis dataKey="channel" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
@@ -1784,14 +1753,92 @@ function PurchaseScreen({ onOpenAddPO, onOpenAddVendor }: { onOpenAddPO: () => v
 // ═══════════════════════════════════════════════════════════
 
 function FinanceScreen() {
+  const { invoices, purchaseOrders, products } = useStockFlow();
   const [tab, setTab] = useState("P&L");
   const tabs = ["P&L", "Balance Sheet", "Cash Flow"];
+
+  // ── P&L: quarter buckets derived from real invoices & purchase orders ──
+  const plData = useMemo(() => {
+    const qRev = [0, 0, 0, 0];
+    const qCost = [0, 0, 0, 0];
+    invoices.forEach(inv => {
+      const d = new Date(inv.date ?? '');
+      if (isNaN(d.getTime())) return;
+      const q = Math.floor(d.getMonth() / 3);
+      qRev[q] += inv.amount || 0;
+    });
+    purchaseOrders.forEach(po => {
+      const d = new Date(po.date ?? '');
+      if (isNaN(d.getTime())) return;
+      const q = Math.floor(d.getMonth() / 3);
+      qCost[q] += po.total ?? 0;
+    });
+    const qGross = qRev.map((r, i) => r - qCost[i]);
+    const opex = qRev.map(r => r * 0.15); // estimate 15% opex of revenue
+    const ebitda = qGross.map((g, i) => g - opex[i]);
+    const netInc = ebitda.map(e => e * 0.93); // ~7% tax/interest
+    return [
+      { label: "Revenue",            q1: qRev[0],   q2: qRev[1],   q3: qRev[2],   q4: qRev[3],   type: "revenue" },
+      { label: "Cost of Goods Sold", q1: qCost[0],  q2: qCost[1],  q3: qCost[2],  q4: qCost[3],  type: "cost" },
+      { label: "Gross Profit",       q1: qGross[0], q2: qGross[1], q3: qGross[2], q4: qGross[3], type: "profit" },
+      { label: "Operating Expenses", q1: opex[0],   q2: opex[1],   q3: opex[2],   q4: opex[3],   type: "sub" },
+      { label: "EBITDA",             q1: ebitda[0], q2: ebitda[1], q3: ebitda[2], q4: ebitda[3], type: "profit" },
+      { label: "Net Income",         q1: netInc[0], q2: netInc[1], q3: netInc[2], q4: netInc[3], type: "profit" },
+    ];
+  }, [invoices, purchaseOrders]);
+
+  // ── Balance Sheet: computed from real inventory, invoices, POs ──
+  const balanceSheet = useMemo(() => {
+    const inventoryVal = products.reduce((s, p) => s + (p.price || 0) * (p.qty || 0), 0);
+    const accountsReceivable = invoices.filter(i => i.status === 'pending' || i.status === 'overdue').reduce((s, i) => s + (i.amount || 0), 0);
+    const accountsPayable = purchaseOrders.filter(po => po.status === 'pending' || po.status === 'ordered').reduce((s, po) => s + (po.total || 0), 0);
+    const totalRevenue = invoices.reduce((s, i) => s + (i.status === 'paid' ? (i.amount || 0) : 0), 0);
+    const totalCosts = purchaseOrders.reduce((s, po) => s + (po.total || 0), 0);
+    const retainedEarnings = Math.max(0, totalRevenue - totalCosts);
+    return {
+      assets: [
+        { label: "Accounts Receivable", value: accountsReceivable },
+        { label: "Inventory (Stock Value)", value: inventoryVal },
+      ],
+      liabilities: [
+        { label: "Accounts Payable", value: accountsPayable },
+      ],
+      equity: [
+        { label: "Retained Earnings", value: retainedEarnings },
+      ],
+    };
+  }, [invoices, purchaseOrders, products]);
+
+  // ── Cash Flow: monthly operating cash derived from paid invoices minus PO spend ──
+  const cashFlowData = useMemo(() => {
+    const byMonth: Record<string, { operating: number; investing: number; financing: number }> = {};
+    MONTH_LABELS.forEach(m => { byMonth[m] = { operating: 0, investing: 0, financing: 0 }; });
+    invoices.forEach(inv => {
+      if (inv.status !== 'paid') return;
+      const d = new Date(inv.date ?? '');
+      if (isNaN(d.getTime())) return;
+      const m = MONTH_LABELS[d.getMonth()];
+      if (!m) return;
+      byMonth[m].operating += Math.round((inv.amount || 0) / 1000);
+    });
+    purchaseOrders.forEach(po => {
+      const d = new Date(po.date ?? '');
+      if (isNaN(d.getTime())) return;
+      const m = MONTH_LABELS[d.getMonth()];
+      if (!m) return;
+      byMonth[m].investing -= Math.round((po.total || 0) / 1000);
+    });
+    return MONTH_LABELS.map(m => ({ month: m, ...byMonth[m] }));
+  }, [invoices, purchaseOrders]);
+
+  const currentYear = new Date().getFullYear();
+
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Finance & Accounting</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Fiscal Year 2024 · All figures in USD</p>
+          <p className="text-sm text-slate-500 mt-0.5">Fiscal Year {currentYear} · All figures in PKR</p>
         </div>
         <Btn variant="outline" size="sm" icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
       </div>
@@ -1799,7 +1846,14 @@ function FinanceScreen() {
 
       {tab === "P&L" && (
         <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Profit & Loss Statement — FY 2024</h3>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Profit & Loss Statement — FY {currentYear}</h3>
+          {invoices.length === 0 && purchaseOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
+              <p className="text-sm font-medium">No financial data yet</p>
+              <p className="text-xs mt-1">Add invoices and purchase orders to see your P&L statement</p>
+            </div>
+          ) : (
           <div className="overflow-x-auto -mx-5">
             <table className="w-full text-sm min-w-[600px]">
               <thead>
@@ -1811,7 +1865,7 @@ function FinanceScreen() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {PL_DATA.map(row => {
+                {plData.map(row => {
                   const fy = row.q1 + row.q2 + row.q3 + row.q4;
                   const isProfit = row.type === "profit";
                   const isCost = row.type === "cost";
@@ -1831,7 +1885,7 @@ function FinanceScreen() {
                             isProfit ? "font-bold text-[#16A34A] dark:text-green-400" :
                               isCost ? "text-red-600 dark:text-red-400" :
                                 i === 4 ? "font-bold text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"
-                          )}>{fmtC(v, true)}</span>
+                          )}>{fmtC(v)}</span>
                         </td>
                       ))}
                     </tr>
@@ -1840,28 +1894,31 @@ function FinanceScreen() {
               </tbody>
             </table>
           </div>
+          )}
         </Card>
       )}
 
       {tab === "Balance Sheet" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {[
-            { title: "Assets", rows: BALANCE_SHEET.assets, color: "blue", total: BALANCE_SHEET.assets.reduce((s, r) => s + r.value, 0) },
-            { title: "Liabilities", rows: BALANCE_SHEET.liabilities, color: "red", total: BALANCE_SHEET.liabilities.reduce((s, r) => s + r.value, 0) },
-            { title: "Equity", rows: BALANCE_SHEET.equity, color: "green", total: BALANCE_SHEET.equity.reduce((s, r) => s + r.value, 0) },
+            { title: "Assets", rows: balanceSheet.assets, color: "blue", total: balanceSheet.assets.reduce((s, r) => s + r.value, 0) },
+            { title: "Liabilities", rows: balanceSheet.liabilities, color: "red", total: balanceSheet.liabilities.reduce((s, r) => s + r.value, 0) },
+            { title: "Equity", rows: balanceSheet.equity, color: "green", total: balanceSheet.equity.reduce((s, r) => s + r.value, 0) },
           ].map(sec => (
             <Card key={sec.title} className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">{sec.title}</h3>
                 <span className={cn("text-sm font-mono font-bold",
                   sec.color === "blue" ? "text-[#2563EB]" : sec.color === "red" ? "text-red-600 dark:text-red-400" : "text-[#16A34A] dark:text-green-400"
-                )}>{fmtC(sec.total, true)}</span>
+                )}>{fmtC(sec.total)}</span>
               </div>
               <div className="space-y-2.5">
-                {sec.rows.map(r => (
+                {sec.rows.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-4">No data yet</p>
+                ) : sec.rows.map(r => (
                   <div key={r.label} className="flex items-center justify-between">
                     <span className="text-xs text-slate-500 dark:text-slate-400">{r.label}</span>
-                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{fmtC(r.value, true)}</span>
+                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{fmtC(r.value)}</span>
                   </div>
                 ))}
               </div>
@@ -1872,19 +1929,27 @@ function FinanceScreen() {
 
       {tab === "Cash Flow" && (
         <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — H2 2024 ($K)</h3>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — FY {currentYear} (PKR thousands)</h3>
+          {invoices.length === 0 && purchaseOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
+              <p className="text-sm font-medium">No cash flow data yet</p>
+              <p className="text-xs mt-1">Add paid invoices and purchase orders to see cash flow</p>
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={CASHFLOW_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
+            <BarChart data={cashFlowData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`$${v}K`, ""]} />
+              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}K`} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`${v}K PKR`, ""]} />
               <Legend />
               <Bar dataKey="operating" name="Operating" fill="#2563EB" radius={[3, 3, 0, 0]} />
               <Bar dataKey="investing" name="Investing" fill="#F59E0B" radius={[3, 3, 0, 0]} />
               <Bar dataKey="financing" name="Financing" fill="#EF4444" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          )}
         </Card>
       )}
     </div>
