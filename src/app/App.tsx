@@ -470,6 +470,19 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
     crm: "Customer Relationship", reports: "Reports", settings: "Settings",
   };
 
+  // Real-time clock
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const timeStr = now.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : hour < 21 ? "Good evening" : "Good night";
+  const greetingEmoji = hour < 12 ? "🌅" : hour < 17 ? "☀️" : hour < 21 ? "🌆" : "🌙";
+  const firstName = currentUser?.name ? currentUser.name.split(" ")[0] : "there";
+
   return (
     <header className="h-14 bg-white dark:bg-[#0F172A] border-b border-slate-200/80 dark:border-slate-700/50 flex items-center px-4 gap-4 shrink-0 z-10">
       <div className="flex items-center gap-2 min-w-0">
@@ -488,6 +501,12 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
+        {/* Greeting + Live Digital Clock */}
+        <div className="hidden md:flex flex-col items-end mr-2 select-none">
+          <span className="text-[10px] text-slate-400 leading-none">{greeting}, <span className="font-semibold text-slate-600 dark:text-slate-300">{firstName}</span> {greetingEmoji}</span>
+          <span className="text-sm font-mono font-bold text-slate-800 dark:text-white tracking-wider leading-tight tabular-nums">{timeStr}</span>
+        </div>
+
         <button
           onClick={refreshData}
           disabled={isLoading}
@@ -516,7 +535,7 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread }: {
 // ═══════════════════════════════════════════════════════════
 
 function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void }) {
-  const { products, invoices, purchaseOrders, refreshData, isLoading } = useStockFlow();
+  const { products, invoices, purchaseOrders, refreshData, isLoading, currentUser } = useStockFlow();
   const [insightIdx, setInsightIdx] = useState(0);
 
   const totalRev = invoices.reduce((s, i) => s + (i.status === 'paid' ? i.amount : 0), 2847392);
@@ -671,7 +690,7 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Good morning, Sarah 👋</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Good morning, {currentUser?.name?.split(" ")[0] || "there"} 👋</h1>
           <p className="text-sm text-slate-500 mt-0.5">Here's what's happening with StockFlow today — Live Real System Data.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -2427,7 +2446,7 @@ function SettingsScreen({ onOpenSupabaseModal }: { onOpenSupabaseModal: () => vo
                   <Badge variant="blue" dot>Active</Badge>
                 </div>
                 <p className="text-xs text-slate-500">Unlimited users · Advanced analytics · Priority support</p>
-                <p className="text-3xl font-mono font-black text-slate-900 dark:text-white mt-3">$2,499<span className="text-sm font-normal text-slate-400">/mo</span></p>
+                <p className="text-3xl font-mono font-black text-slate-900 dark:text-white mt-3">Rs 2,499<span className="text-sm font-normal text-slate-400">/mo</span></p>
               </div>
               <Btn variant="outline" size="sm">Change Plan</Btn>
             </div>
