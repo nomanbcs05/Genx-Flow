@@ -459,9 +459,9 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
-        {/* Greeting + Live Digital Clock */}
+        {/* Live Digital Clock only */}
         <div className="hidden md:flex flex-col items-end mr-2 select-none">
-          <span className="text-[10px] text-slate-400 leading-none">{greeting}, <span className="font-semibold text-slate-600 dark:text-slate-300">{firstName}</span> {greetingEmoji}</span>
+          <span className="text-[10px] text-slate-400 leading-none uppercase tracking-wider">Live</span>
           <span className="text-sm font-mono font-bold text-slate-800 dark:text-white tracking-wider leading-tight tabular-nums">{timeStr}</span>
         </div>
 
@@ -697,12 +697,12 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Good morning, {currentUser?.name?.split(" ")[0] || "there"} 👋</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Here's what's happening with StockFlow today — Live Real System Data.</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Executive Dashboard</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Live real-time business overview — StockFlow ERP.</p>
         </div>
         <div className="flex items-center gap-2">
           <Btn variant="outline" size="sm" onClick={handleExportPDF} icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
-          <Btn size="sm" onClick={refreshData} icon={<RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin")} />}>Refresh</Btn>
+          <Btn size="sm" onClick={async () => { await refreshData(); }} disabled={isLoading} icon={<RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin text-white")} />}>{isLoading ? "Refreshing…" : "Refresh"}</Btn>
         </div>
       </div>
 
@@ -3024,8 +3024,12 @@ function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
             Real-time inventory sync, automated financial accounting, CRM tracking, and BI analytics designed for high-growth enterprises.
           </p>
         </div>
-        <div className="relative z-10 border-t border-slate-800/80 pt-6 flex items-center justify-between text-xs text-slate-500">
-          <span>© 2026 StockFlow ERP Inc.</span>
+        <div className="relative z-10 border-t border-slate-800/80 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-3">
+            <span>© 2026 StockFlow ERP Inc. Powered by <span className="text-blue-400 font-semibold">Genx Cloud</span></span>
+            <span className="hidden sm:inline text-slate-700">·</span>
+            <span>For Software &amp; Services: <a href="tel:+923342826675" className="text-blue-400 hover:text-blue-300 font-mono transition-colors">+92 334 2826675</a></span>
+          </div>
           <span className="font-mono">v3.2.1 Enterprise Edition</span>
         </div>
       </div>
