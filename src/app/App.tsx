@@ -1172,6 +1172,38 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
     return matchSearch && matchStatus;
   });
 
+  // Build monthly revenue data from real invoices for Analytics chart
+  const REVENUE_DATA = (() => {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const map: Record<string, number> = {};
+    invoices.forEach(inv => {
+      const d = new Date(inv.date);
+      if (!isNaN(d.getTime())) {
+        const key = months[d.getMonth()];
+        map[key] = (map[key] || 0) + (inv.amount || 0);
+      }
+    });
+    // Return last 6 months with data, or fallback placeholder months
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+      const key = months[d.getMonth()];
+      return { month: key, revenue: map[key] || 0 };
+    });
+  })();
+
+  // Build channel data from real invoices for Analytics bar chart
+  const CHANNEL_DATA = (() => {
+    const posTotal   = invoices.filter(i => i.id?.startsWith('POS')).reduce((s, i) => s + (i.amount || 0), 0);
+    const invTotal   = invoices.filter(i => !i.id?.startsWith('POS')).reduce((s, i) => s + (i.amount || 0), 0);
+    return [
+      { channel: 'Invoice', value: Math.round(invTotal) },
+      { channel: 'POS',     value: Math.round(posTotal) },
+      { channel: 'Online',  value: 0 },
+      { channel: 'Other',   value: 0 },
+    ];
+  })();
+
   const handleChargePOS = async () => {
     if (posCart.length === 0) return;
     const txId = `POS-${Date.now().toString().slice(-6)}`;
