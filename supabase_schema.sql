@@ -55,12 +55,18 @@ CREATE TABLE IF NOT EXISTS public.vendors (
 CREATE TABLE IF NOT EXISTS public.customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  company TEXT NOT NULL,
-  email TEXT NOT NULL,
-  orders INTEGER NOT NULL DEFAULT 0,
-  spend NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  phone TEXT DEFAULT '',
+  city TEXT DEFAULT '',
+  product TEXT DEFAULT '',
+  credit NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  debit NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  balance NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   status TEXT NOT NULL DEFAULT 'active',
-  tier TEXT NOT NULL DEFAULT 'growth',
+  company TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  orders INTEGER DEFAULT 0,
+  spend NUMERIC(12,2) DEFAULT 0.00,
+  tier TEXT DEFAULT 'growth',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -150,13 +156,13 @@ INSERT INTO public.vendors (id, name, contact, email, orders, spend, status, ter
   ('V005', 'Cornerstone Logistics', 'Ryan Walsh', 'r.walsh@cornerstone.net', 5, 28000.00, 'inactive', 'Net 30')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO public.customers (id, name, company, email, orders, spend, status, tier) VALUES
-  ('CUS-001', 'Alexandra Chen', 'Meridian Technologies', 'a.chen@meridiantech.com', 24, 84920.00, 'active', 'enterprise'),
-  ('CUS-002', 'Marcus Williams', 'Apex Solutions Group', 'm.williams@apexgroup.io', 18, 52340.00, 'active', 'professional'),
-  ('CUS-003', 'Sophia Patel', 'Blue Horizon Corp.', 's.patel@bluehorizon.com', 7, 18600.00, 'at_risk', 'growth'),
-  ('CUS-004', 'James O''Brien', 'NovaStar Retail Inc.', 'jobrien@novastar.retail', 41, 241800.00, 'active', 'enterprise'),
-  ('CUS-005', 'Yuki Tanaka', 'Quantum Dynamics LLC', 'y.tanaka@qdynamics.co', 12, 38200.00, 'active', 'professional'),
-  ('CUS-006', 'Elena Novak', 'Vertex Global Partners', 'e.novak@vertexglobal.eu', 9, 29450.00, 'inactive', 'growth')
+INSERT INTO public.customers (id, name, phone, city, product, credit, debit, balance, status, company, email, orders, spend, tier) VALUES
+  ('CUS-001', 'Alexandra Chen', '+92 300 5550101', 'Lahore', 'ProVision 4K Monitor 27"', 50000.00, 84920.00, 34920.00, 'active', 'Meridian Technologies', 'a.chen@meridiantech.com', 24, 84920.00, 'enterprise'),
+  ('CUS-002', 'Marcus Williams', '+92 321 5550102', 'Karachi', 'MX Mechanical Keyboard Pro', 30000.00, 52340.00, 22340.00, 'active', 'Apex Solutions Group', 'm.williams@apexgroup.io', 18, 52340.00, 'professional'),
+  ('CUS-003', 'Sophia Patel', '+92 333 5550103', 'Islamabad', 'QuietMax ANC Headphones', 18600.00, 18600.00, 0.00, 'at_risk', 'Blue Horizon Corp.', 's.patel@bluehorizon.com', 7, 18600.00, 'growth'),
+  ('CUS-004', 'James O''Brien', '+92 345 5550104', 'Rawalpindi', 'StandUp Desk Pro 60"', 200000.00, 241800.00, 41800.00, 'active', 'NovaStar Retail Inc.', 'jobrien@novastar.retail', 41, 241800.00, 'enterprise'),
+  ('CUS-005', 'Yuki Tanaka', '+92 302 5550105', 'Faisalabad', 'StreamCam 4K Webcam', 38200.00, 38200.00, 0.00, 'active', 'Quantum Dynamics LLC', 'y.tanaka@qdynamics.co', 12, 38200.00, 'professional'),
+  ('CUS-006', 'Elena Novak', '+92 312 5550106', 'Multan', 'USB-C Hub 7-in-1', 15000.00, 29450.00, 14450.00, 'inactive', 'Vertex Global Partners', 'e.novak@vertexglobal.eu', 9, 29450.00, 'growth')
 ON CONFLICT (id) DO NOTHING;
 
 -- 8. USERS TABLE

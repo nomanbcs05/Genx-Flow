@@ -1128,7 +1128,7 @@ function InventoryScreen({ onOpenAddProduct, onOpenEditProduct }: { onOpenAddPro
 // ═══════════════════════════════════════════════════════════
 
 function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
-  const { products, invoices, markInvoicePaid, processPOSSale } = useStockFlow();
+  const { products, invoices, customers, markInvoicePaid, processPOSSale } = useStockFlow();
   const [tab, setTab] = useState("Invoices");
   const [posCart, setPosCart] = useState<Array<{ id: string; sku: string; name: string; price: number; qty: number }>>([]);
   const [custName, setCustName] = useState('Walk-in Customer');
@@ -1411,13 +1411,19 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-500 mb-1">Customer Name</label>
-                  <input
-                    type="text"
+                  <label className="block font-bold text-slate-500 mb-1">Customer (CRM / Walk-in)</label>
+                  <select
                     value={custName}
                     onChange={e => setCustName(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="Walk-in Customer">Walk-in Customer</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} {c.city ? `(${c.city})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-500 mb-1">Payment Method</label>
@@ -1982,8 +1988,10 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Relationship (CRM)</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{customers.length} accounts · {fmtC(customers.reduce((s, c) => s + c.spend, 0))} total revenue</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Relationship & Ledger (CRM)</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {customers.length} ledger accounts · Total Billed (Debit): {fmtC(customers.reduce((s, c) => s + (c.debit || 0), 0))} · Total Paid (Credit): {fmtC(customers.reduce((s, c) => s + (c.credit || 0), 0))} · Net Balance: {fmtC(customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0))}
+          </p>
         </div>
         <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add Customer</Btn>
       </div>
@@ -1995,24 +2003,39 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
           {editingCust && (
             <div className="mb-4 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-[#2563EB]/20 space-y-3 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-800 dark:text-white">Editing: {editingCust.name}</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-white">Editing Ledger: {editingCust.name}</p>
                 <button onClick={() => setEditingCust(null)} className="text-slate-400 hover:text-slate-700 p-1"><X className="w-4 h-4" /></button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Full Name</label>
-                  <input value={editingCust.name} onChange={e => setEditingCust({ ...editingCust, name: e.target.value })}
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Customer Name</label>
+                  <input value={editingCust.name || ''} onChange={e => setEditingCust({ ...editingCust, name: e.target.value })}
                     className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Company</label>
-                  <input value={editingCust.company} onChange={e => setEditingCust({ ...editingCust, company: e.target.value })}
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Phone Number</label>
+                  <input value={editingCust.phone || ''} onChange={e => setEditingCust({ ...editingCust, phone: e.target.value })}
                     className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Email</label>
-                  <input value={editingCust.email} onChange={e => setEditingCust({ ...editingCust, email: e.target.value })}
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">City</label>
+                  <input value={editingCust.city || ''} onChange={e => setEditingCust({ ...editingCust, city: e.target.value })}
                     className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Product</label>
+                  <input value={editingCust.product || ''} onChange={e => setEditingCust({ ...editingCust, product: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Debit (Billed)</label>
+                  <input type="number" value={editingCust.debit || 0} onChange={e => setEditingCust({ ...editingCust, debit: Number(e.target.value) })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Credit (Paid)</label>
+                  <input type="number" value={editingCust.credit || 0} onChange={e => setEditingCust({ ...editingCust, credit: Number(e.target.value) })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white" />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</label>
@@ -2023,14 +2046,11 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
                     <option value="inactive">Inactive</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Tier</label>
-                  <select value={editingCust.tier} onChange={e => setEditingCust({ ...editingCust, tier: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                    <option value="enterprise">Enterprise</option>
-                    <option value="professional">Professional</option>
-                    <option value="growth">Growth</option>
-                  </select>
+                <div className="flex flex-col justify-end">
+                  <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Net Balance</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-white">{fmtC((editingCust.debit || 0) - (editingCust.credit || 0), true)}</span>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2 justify-end pt-1">
@@ -2040,55 +2060,69 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
             </div>
           )}
           <div className="overflow-x-auto -mx-5">
-            <table className="w-full text-sm min-w-[700px]">
+            <table className="w-full text-sm min-w-[850px]">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-700">
-                  {["Customer", "Email", "Orders", "Total Spend", "Tier", "Status", "Actions"].map((h, i) => (
+                  {["Name", "Phone", "City", "Product", "Credit", "Debit", "Balance", "Status", "Actions"].map((h, i) => (
                     <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left",
-                      (h === "Total Spend" || h === "Orders") && "text-right",
+                      ["Credit", "Debit", "Balance"].includes(h) && "text-right",
                       h === "Actions" && "text-center")}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {customers.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
-                          <span className="text-[10px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                {customers.map(c => {
+                  const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
+                            <span className="text-[10px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{c.name}</p>
+                            {c.company && <p className="text-[10px] text-slate-400">{c.company}</p>}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{c.name}</p>
-                          <p className="text-[10px] text-slate-400">{c.company}</p>
+                      </td>
+                      <td className="px-3 py-3 text-slate-600 dark:text-slate-300 text-xs font-medium">{c.phone || '-'}</td>
+                      <td className="px-3 py-3 text-slate-600 dark:text-slate-300 text-xs">{c.city || '-'}</td>
+                      <td className="px-3 py-3 text-slate-700 dark:text-slate-300 text-xs font-medium max-w-[180px] truncate" title={c.product}>{c.product || '-'}</td>
+                      <td className="px-3 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0, true)}</td>
+                      <td className="px-3 py-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0, true)}</td>
+                      <td className="px-3 py-3 text-right font-mono font-bold">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-xs",
+                          bal > 0 ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60" :
+                          bal < 0 ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/60" :
+                          "text-slate-600 dark:text-slate-400"
+                        )}>
+                          {fmtC(bal, true)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">{statusBadge(c.status)}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                            title="Edit customer ledger"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { if (confirm(`Delete customer ledger for "${c.name}"?`)) deleteCustomer(c.id); }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            title="Delete customer ledger"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-slate-500 text-xs">{c.email}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">{c.orders}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">{fmtC(c.spend, true)}</td>
-                    <td className="px-3 py-3">{statusBadge(c.tier)}</td>
-                    <td className="px-3 py-3">{statusBadge(c.status)}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                          title="Edit customer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => { if (confirm(`Delete customer "${c.name}"?`)) deleteCustomer(c.id); }}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                          title="Delete customer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2201,8 +2235,8 @@ function ReportsScreen() {
       headers = "Invoice #,Customer,Date,Due Date,Amount (PKR),Items,Status";
       body = invoices.map(i => `${i.id},"${i.customer}",${i.date},${i.due},${i.amount},${i.items},${i.status}`).join("\n");
     } else if (reportType === "Customer Report") {
-      headers = "ID,Name,Company,Email,Orders,Total Spend (PKR),Tier,Status";
-      body = customers.map(c => `${c.id},"${c.name}","${c.company}",${c.email},${c.orders},${c.spend},${c.tier},${c.status}`).join("\n");
+      headers = "ID,Name,Phone,City,Product,Credit (PKR),Debit (PKR),Balance (PKR),Status";
+      body = customers.map(c => `${c.id},"${c.name}","${c.phone || ''}","${c.city || ''}","${c.product || ''}",${c.credit || 0},${c.debit || 0},${c.balance ?? ((c.debit || 0) - (c.credit || 0))},${c.status}`).join("\n");
     } else if (reportType === "Purchase Report") {
       headers = "PO #,Vendor,Date,Expected,Amount (PKR),Items,Status";
       body = purchaseOrders.map(p => `${p.id},"${p.vendor}",${p.date},${p.expected},${p.amount},${p.items},${p.status}`).join("\n");
@@ -2227,8 +2261,8 @@ function ReportsScreen() {
       tableHtml = `<tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th></tr>` +
         invoices.map(i => `<tr><td>${i.id}</td><td>${i.customer}</td><td>${i.date}</td><td>${fmtC(i.amount)}</td><td>${i.status}</td></tr>`).join("");
     } else if (reportType === "Customer Report") {
-      tableHtml = `<tr><th>Name</th><th>Company</th><th>Orders</th><th>Total Spend</th><th>Tier</th><th>Status</th></tr>` +
-        customers.map(c => `<tr><td>${c.name}</td><td>${c.company}</td><td>${c.orders}</td><td>${fmtC(c.spend)}</td><td>${c.tier}</td><td>${c.status}</td></tr>`).join("");
+      tableHtml = `<tr><th>Name</th><th>Phone</th><th>City</th><th>Product</th><th>Credit</th><th>Debit</th><th>Balance</th><th>Status</th></tr>` +
+        customers.map(c => `<tr><td>${c.name}</td><td>${c.phone || '-'}</td><td>${c.city || '-'}</td><td>${c.product || '-'}</td><td>${fmtC(c.credit || 0)}</td><td>${fmtC(c.debit || 0)}</td><td>${fmtC(c.balance ?? ((c.debit || 0) - (c.credit || 0)))}</td><td>${c.status}</td></tr>`).join("");
     } else if (reportType === "Purchase Report") {
       tableHtml = `<tr><th>PO #</th><th>Vendor</th><th>Date</th><th>Amount</th><th>Status</th></tr>` +
         purchaseOrders.map(p => `<tr><td>${p.id}</td><td>${p.vendor}</td><td>${p.date}</td><td>${fmtC(p.amount)}</td><td>${p.status}</td></tr>`).join("");
@@ -2359,36 +2393,42 @@ function ReportsScreen() {
               )}
 
               {reportType === "Customer Report" && (
-                <table className="w-full text-sm min-w-[650px]">
+                <table className="w-full text-sm min-w-[750px]">
                   <thead><tr className="border-b border-slate-100 dark:border-slate-700">
-                    {["Customer", "Company", "Email", "Orders", "Total Spend (PKR)", "Tier", "Status"].map((h, i) => (
-                      <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Orders","Total Spend (PKR)"].includes(h) && "text-right")}>{h}</th>
+                    {["Name", "Phone", "City", "Product", "Credit (PKR)", "Debit (PKR)", "Balance (PKR)", "Status"].map((h, i) => (
+                      <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Credit (PKR)","Debit (PKR)","Balance (PKR)"].includes(h) && "text-right")}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                    {customers.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
-                              <span className="text-[9px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                    {customers.map(c => {
+                      const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
+                                <span className="text-[9px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                              </div>
+                              <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">{c.name}</span>
                             </div>
-                            <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">{c.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-slate-500">{c.company}</td>
-                        <td className="px-3 py-2.5 text-xs text-slate-500">{c.email}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{c.orders}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-[#16A34A]">{fmtC(c.spend)}</td>
-                        <td className="px-3 py-2.5">{statusBadge(c.tier)}</td>
-                        <td className="px-3 py-2.5">{statusBadge(c.status)}</td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500">{c.phone || '-'}</td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500">{c.city || '-'}</td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500 max-w-[150px] truncate">{c.product || '-'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-slate-800 dark:text-slate-200">{fmtC(bal)}</td>
+                          <td className="px-3 py-2.5">{statusBadge(c.status)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot><tr className="border-t-2 border-slate-200 dark:border-slate-600">
-                    <td colSpan={4} className="px-3 py-2.5 text-xs font-bold text-slate-500">TOTAL CUSTOMER REVENUE</td>
-                    <td className="px-3 py-2.5 text-right font-mono font-black text-[#2563EB] text-sm">{fmtC(customers.reduce((s, c) => s + c.spend, 0))}</td>
-                    <td colSpan={2}></td>
+                    <td colSpan={4} className="px-3 py-2.5 text-xs font-bold text-slate-500">TOTAL NET BALANCE OUTSTANDING</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-600 text-xs">{fmtC(customers.reduce((s, c) => s + (c.credit || 0), 0))}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-600 text-xs">{fmtC(customers.reduce((s, c) => s + (c.debit || 0), 0))}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-black text-[#2563EB] text-sm">{fmtC(customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0))}</td>
+                    <td></td>
                   </tr></tfoot>
                 </table>
               )}

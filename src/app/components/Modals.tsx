@@ -467,13 +467,25 @@ export function EditProductModal({ product, onClose }: { product: Product | null
 // 4. NEW INVOICE MODAL
 export function AddInvoiceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { addInvoice, customers } = useStockFlow();
-  const [customer, setCustomer] = useState(customers[0]?.company || 'Meridian Technologies Ltd.');
+  const [customer, setCustomer] = useState('');
+  const [isCustomCustomer, setIsCustomCustomer] = useState(false);
+  const [customCustomer, setCustomCustomer] = useState('');
   const [amount, setAmount] = useState(2500);
   const [items, setItems] = useState(5);
   const [dueDays, setDueDays] = useState(30);
 
+  // Default customer selection from CRM
+  React.useEffect(() => {
+    if (customers.length > 0 && !customer) {
+      setCustomer(customers[0].name);
+    }
+  }, [customers, customer]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const finalCustomer = isCustomCustomer ? customCustomer.trim() : customer;
+    if (!finalCustomer) return;
+
     const dateObj = new Date();
     const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const dueObj = new Date();
@@ -481,7 +493,7 @@ export function AddInvoiceModal({ open, onClose }: { open: boolean; onClose: () 
     const dueStr = dueObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     await addInvoice({
-      customer,
+      customer: finalCustomer,
       date: dateStr,
       due: dueStr,
       amount: Number(amount),
@@ -495,19 +507,48 @@ export function AddInvoiceModal({ open, onClose }: { open: boolean; onClose: () 
     <Modal open={open} onClose={onClose} title="Create New Sales Invoice">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Customer / Organization</label>
-          <input
-            type="text"
-            required
-            value={customer}
-            onChange={e => setCustomer(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
+          <div className="flex items-center justify-between mb-1">
+            <label className="block font-bold text-slate-700 dark:text-slate-300">Customer (Select from CRM)</label>
+            <button
+              type="button"
+              onClick={() => setIsCustomCustomer(!isCustomCustomer)}
+              className="text-[11px] text-[#2563EB] hover:underline font-semibold"
+            >
+              {isCustomCustomer ? 'Select saved customer' : '+ Custom customer name'}
+            </button>
+          </div>
+
+          {isCustomCustomer ? (
+            <input
+              type="text"
+              required
+              placeholder="Enter customer name..."
+              value={customCustomer}
+              onChange={e => setCustomCustomer(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+          ) : (
+            <select
+              value={customer}
+              onChange={e => setCustomer(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+            >
+              {customers.length === 0 ? (
+                <option value="">No customers found in CRM</option>
+              ) : (
+                customers.map(c => (
+                  <option key={c.id} value={c.name}>
+                    {c.name} {c.city ? `(${c.city})` : c.company ? `(${c.company})` : ''} — Balance: PKR {(c.balance || 0).toLocaleString()}
+                  </option>
+                ))
+              )}
+            </select>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Total Amount ($)</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Total Amount (PKR)</label>
             <input
               type="number"
               step="0.01"
@@ -714,30 +755,36 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
 export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { addCustomer } = useStockFlow();
   const [name, setName] = useState('');
-  const [company, setCompany] = useState('');
-  const [email, setEmail] = useState('');
-  const [tier, setTier] = useState('professional');
+  const [phone, setPhone] = useState('');
+  const [city, setCity] = useState('');
+  const [product, setProduct] = useState('');
+  const [credit, setCredit] = useState(0);
+  const [debit, setDebit] = useState(0);
+  const [status, setStatus] = useState('active');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cr = Number(credit) || 0;
+    const dr = Number(debit) || 0;
     await addCustomer({
       name,
-      company,
-      email,
-      orders: 0,
-      spend: 0,
-      status: 'active',
-      tier,
+      phone,
+      city,
+      product,
+      credit: cr,
+      debit: dr,
+      balance: dr - cr,
+      status,
     });
     onClose();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Add New Customer">
+    <Modal open={open} onClose={onClose} title="Add New Customer Ledger">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Customer Name</label>
             <input
               type="text"
               required
@@ -748,46 +795,89 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Company Name</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
             <input
               type="text"
               required
-              placeholder="e.g. NextGen Corp"
-              value={company}
-              onChange={e => setCompany(e.target.value)}
+              placeholder="e.g. +92 300 1234567"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
         </div>
 
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Email Address</label>
-          <input
-            type="email"
-            required
-            placeholder="s.jenkins@nextgen.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">City</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Lahore, Karachi, Islamabad"
+              value={city}
+              onChange={e => setCity(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Product / Item Purchased</label>
+            <input
+              type="text"
+              placeholder="e.g. ProVision 4K Monitor"
+              value={product}
+              onChange={e => setProduct(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Account Tier</label>
-          <select
-            value={tier}
-            onChange={e => setTier(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          >
-            <option value="growth">Growth</option>
-            <option value="professional">Professional</option>
-            <option value="enterprise">Enterprise</option>
-          </select>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Debit (Amount Billed)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={debit}
+              onChange={e => setDebit(Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Credit (Amount Paid)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={credit}
+              onChange={e => setCredit(Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
+            <select
+              value={status}
+              onChange={e => setStatus(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            >
+              <option value="active">Active</option>
+              <option value="at_risk">At Risk</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs">
+          <span className="font-bold text-slate-600 dark:text-slate-400">Calculated Net Balance:</span>
+          <span className={`font-mono font-bold text-sm ${(Number(debit) - Number(credit)) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
+            PKR {(Number(debit) - Number(credit)).toLocaleString()}
+          </span>
         </div>
 
         <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
-          <button type="submit" className="px-5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold">Add Customer</button>
+          <button type="submit" className="px-5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold">Add Customer Ledger</button>
         </div>
       </form>
     </Modal>

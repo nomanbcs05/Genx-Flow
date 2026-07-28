@@ -47,12 +47,18 @@ export interface Vendor {
 export interface Customer {
   id: string;
   name: string;
-  company: string;
-  email: string;
-  orders: number;
-  spend: number;
+  phone: string;
+  city: string;
+  product: string;
+  credit: number;
+  debit: number;
+  balance: number;
   status: 'active' | 'at_risk' | 'inactive' | string;
-  tier: 'enterprise' | 'professional' | 'growth' | string;
+  company?: string;
+  email?: string;
+  orders?: number;
+  spend?: number;
+  tier?: 'enterprise' | 'professional' | 'growth' | string;
 }
 
 export interface Activity {
@@ -129,12 +135,12 @@ export const INITIAL_VENDORS: Vendor[] = [
 ];
 
 export const INITIAL_CUSTOMERS: Customer[] = [
-  { id: "CUS-001", name: "Alexandra Chen", company: "Meridian Technologies", email: "a.chen@meridiantech.com", orders: 24, spend: 84920.00, status: "active", tier: "enterprise" },
-  { id: "CUS-002", name: "Marcus Williams", company: "Apex Solutions Group", email: "m.williams@apexgroup.io", orders: 18, spend: 52340.00, status: "active", tier: "professional" },
-  { id: "CUS-003", name: "Sophia Patel", company: "Blue Horizon Corp.", email: "s.patel@bluehorizon.com", orders: 7, spend: 18600.00, status: "at_risk", tier: "growth" },
-  { id: "CUS-004", name: "James O'Brien", company: "NovaStar Retail Inc.", email: "jobrien@novastar.retail", orders: 41, spend: 241800.00, status: "active", tier: "enterprise" },
-  { id: "CUS-005", name: "Yuki Tanaka", company: "Quantum Dynamics LLC", email: "y.tanaka@qdynamics.co", orders: 12, spend: 38200.00, status: "active", tier: "professional" },
-  { id: "CUS-006", name: "Elena Novak", company: "Vertex Global Partners", email: "e.novak@vertexglobal.eu", orders: 9, spend: 29450.00, status: "inactive", tier: "growth" },
+  { id: "CUS-001", name: "Alexandra Chen", phone: "+92 300 5550101", city: "Lahore", product: "ProVision 4K Monitor 27\"", credit: 50000, debit: 84920, balance: 34920, status: "active", company: "Meridian Technologies", email: "a.chen@meridiantech.com", orders: 24, spend: 84920.00, tier: "enterprise" },
+  { id: "CUS-002", name: "Marcus Williams", phone: "+92 321 5550102", city: "Karachi", product: "MX Mechanical Keyboard Pro", credit: 30000, debit: 52340, balance: 22340, status: "active", company: "Apex Solutions Group", email: "m.williams@apexgroup.io", orders: 18, spend: 52340.00, tier: "professional" },
+  { id: "CUS-003", name: "Sophia Patel", phone: "+92 333 5550103", city: "Islamabad", product: "QuietMax ANC Headphones", credit: 18600, debit: 18600, balance: 0, status: "at_risk", company: "Blue Horizon Corp.", email: "s.patel@bluehorizon.com", orders: 7, spend: 18600.00, tier: "growth" },
+  { id: "CUS-004", name: "James O'Brien", phone: "+92 345 5550104", city: "Rawalpindi", product: "StandUp Desk Pro 60\"", credit: 200000, debit: 241800, balance: 41800, status: "active", company: "NovaStar Retail Inc.", email: "jobrien@novastar.retail", orders: 41, spend: 241800.00, tier: "enterprise" },
+  { id: "CUS-005", name: "Yuki Tanaka", phone: "+92 302 5550105", city: "Faisalabad", product: "StreamCam 4K Webcam", credit: 38200, debit: 38200, balance: 0, status: "active", company: "Quantum Dynamics LLC", email: "y.tanaka@qdynamics.co", orders: 12, spend: 38200.00, tier: "professional" },
+  { id: "CUS-006", name: "Elena Novak", phone: "+92 312 5550106", city: "Multan", product: "USB-C Hub 7-in-1", credit: 15000, debit: 29450, balance: 14450, status: "inactive", company: "Vertex Global Partners", email: "e.novak@vertexglobal.eu", orders: 9, spend: 29450.00, tier: "growth" },
 ];
 
 export const INITIAL_ACTIVITIES: Activity[] = [
@@ -694,7 +700,29 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
 
     setInvoices(prev => [newInvoice, ...prev]);
-    await addActivity('order', 'New Invoice Created', `${newInvoice.id} issued to ${newInvoice.customer} for $${newInvoice.amount.toLocaleString()}`);
+
+    // Automatically update customer ledger in CRM if customer exists
+    setCustomers(prev => prev.map(c => {
+      const matchName = c.name.toLowerCase() === newInvoice.customer.toLowerCase() ||
+                        (c.company && c.company.toLowerCase() === newInvoice.customer.toLowerCase());
+      if (matchName) {
+        const newDebit = (c.debit || 0) + newInvoice.amount;
+        const newCredit = c.credit || 0;
+        const newBalance = newDebit - newCredit;
+        const newSpend = (c.spend || 0) + newInvoice.amount;
+        const newOrders = (c.orders || 0) + 1;
+        return {
+          ...c,
+          debit: newDebit,
+          balance: newBalance,
+          spend: newSpend,
+          orders: newOrders
+        };
+      }
+      return c;
+    }));
+
+    await addActivity('order', 'New Invoice Created', `${newInvoice.id} issued to ${newInvoice.customer} for PKR ${newInvoice.amount.toLocaleString()}`);
 
     const sb = getSupabase();
     if (sb) {
@@ -708,8 +736,26 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!inv) return;
 
     setInvoices(prev => prev.map(i => i.id === id ? { ...i, status: 'paid' } : i));
-    await addActivity('payment', 'Payment Received', `$${inv.amount.toLocaleString()} received for invoice ${inv.id}`);
-    await addNotification('payment', 'Payment Received', `$${inv.amount.toLocaleString()} from ${inv.customer}`);
+
+    // Update customer credit & balance upon receiving payment
+    setCustomers(prev => prev.map(c => {
+      const matchName = c.name.toLowerCase() === inv.customer.toLowerCase() ||
+                        (c.company && c.company.toLowerCase() === inv.customer.toLowerCase());
+      if (matchName) {
+        const newCredit = (c.credit || 0) + inv.amount;
+        const newDebit = c.debit || 0;
+        const newBalance = newDebit - newCredit;
+        return {
+          ...c,
+          credit: newCredit,
+          balance: newBalance
+        };
+      }
+      return c;
+    }));
+
+    await addActivity('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} received for invoice ${inv.id}`);
+    await addNotification('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} from ${inv.customer}`);
 
     const sb = getSupabase();
     if (sb) {
@@ -782,13 +828,24 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // 10. ADD CUSTOMER
   const addCustomer = async (customerData: Omit<Customer, 'id'> & { id?: string }) => {
     const newId = customerData.id || `CUS-${String(customers.length + 1).padStart(3, '0')}`;
+    const credit = Number(customerData.credit || 0);
+    const debit = Number(customerData.debit || 0);
+    const balance = debit - credit;
     const newCustomer: Customer = {
+      name: '',
+      phone: '',
+      city: '',
+      product: '',
+      credit,
+      debit,
+      status: 'active',
       ...customerData,
       id: newId,
+      balance,
     };
 
     setCustomers(prev => [newCustomer, ...prev]);
-    await addActivity('user', 'New Customer Registered', `${newCustomer.name} (${newCustomer.company})`);
+    await addActivity('user', 'New Customer Ledger Created', `${newCustomer.name} (${newCustomer.city || newCustomer.phone})`);
 
     const sb = getSupabase();
     if (sb) {
@@ -798,7 +855,16 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 10b. UPDATE CUSTOMER
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    setCustomers(prev => prev.map(c => {
+      if (c.id === id) {
+        const merged = { ...c, ...updates };
+        const credit = Number(merged.credit || 0);
+        const debit = Number(merged.debit || 0);
+        merged.balance = debit - credit;
+        return merged;
+      }
+      return c;
+    }));
     const sb = getSupabase();
     if (sb) await sb.from('customers').update(updates).eq('id', id).catch(() => {});
   };
