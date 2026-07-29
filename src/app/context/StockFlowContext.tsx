@@ -37,7 +37,9 @@ export interface Vendor {
   id: string;
   name: string;
   contact: string;
-  email: string;
+  email?: string;
+  paymentsSlot?: string;
+  paymentMethod?: string;
   orders: number;
   spend: number;
   status: 'active' | 'inactive' | string;
@@ -127,11 +129,11 @@ export const INITIAL_POS: PurchaseOrder[] = [
 ];
 
 export const INITIAL_VENDORS: Vendor[] = [
-  { id: "V001", name: "TechSource Global", contact: "David Huang", email: "dhuang@techsource.com", orders: 18, spend: 284200, status: "active", terms: "Net 30" },
-  { id: "V002", name: "Pinnacle Supplies Co.", contact: "Lisa Moreno", email: "l.moreno@pinnacle.co", orders: 12, spend: 128400, status: "active", terms: "Net 15" },
-  { id: "V003", name: "Metro Office Distributors", contact: "Tom Bradley", email: "t.bradley@metrooffice.com", orders: 8, spend: 67800, status: "active", terms: "Net 30" },
-  { id: "V004", name: "Summit Electronics", contact: "Priya Sharma", email: "p.sharma@summitelec.io", orders: 21, spend: 412600, status: "active", terms: "Net 45" },
-  { id: "V005", name: "Cornerstone Logistics", contact: "Ryan Walsh", email: "r.walsh@cornerstone.net", orders: 5, spend: 28000, status: "inactive", terms: "Net 30" },
+  { id: "V001", name: "TechSource Global", contact: "David Huang", paymentsSlot: "Bank Transfer (HBL / IBAN-4019)", email: "dhuang@techsource.com", orders: 18, spend: 284200, status: "active", terms: "Net 30" },
+  { id: "V002", name: "Pinnacle Supplies Co.", contact: "Lisa Moreno", paymentsSlot: "Online Payment Gateway", email: "l.moreno@pinnacle.co", orders: 12, spend: 128400, status: "active", terms: "Net 15" },
+  { id: "V003", name: "Metro Office Distributors", contact: "Tom Bradley", paymentsSlot: "Cheque / Bank Draft", email: "t.bradley@metrooffice.com", orders: 8, spend: 67800, status: "active", terms: "Net 30" },
+  { id: "V004", name: "Summit Electronics", contact: "Priya Sharma", paymentsSlot: "Direct Wire Transfer", email: "p.sharma@summitelec.io", orders: 21, spend: 412600, status: "active", terms: "Net 45" },
+  { id: "V005", name: "Cornerstone Logistics", contact: "Ryan Walsh", paymentsSlot: "Cash on Delivery / Spot", email: "r.walsh@cornerstone.net", orders: 5, spend: 28000, status: "inactive", terms: "Net 30" },
 ];
 
 export const INITIAL_CUSTOMERS: Customer[] = [
@@ -218,6 +220,10 @@ interface StockFlowContextType {
   disconnectSupabase: () => void;
   refreshData: () => Promise<void>;
   markAllNotificationsRead: () => void;
+  
+  exportAllDataJSON: () => string;
+  importAllDataJSON: (jsonStr: string) => Promise<{ success: boolean; error?: string; count?: number }>;
+  pushLocalToSupabase: () => Promise<{ success: boolean; count?: number; error?: string }>;
 }
 
 const StockFlowContext = createContext<StockFlowContextType | undefined>(undefined);
@@ -582,6 +588,112 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSupabaseKey('');
     setIsSupabaseConnected(false);
     setSyncStatus('offline');
+  };
+
+  // Auto-sync polling and window focus refetching when cloud connected
+  useEffect(() => {
+    if (!isSupabaseConnected) return;
+
+    const handleFocus = () => {
+      fetchFromSupabase().catch(() => {});
+    };
+
+    window.addEventListener('focus', handleFocus);
+    const interval = setInterval(() => {
+      fetchFromSupabase().catch(() => {});
+    }, 25000); // 25s background polling across devices
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
+  }, [isSupabaseConnected, supabaseUrl, supabaseKey]);
+
+  // Export All ERP & Customer Ledger Data to portable JSON file string
+  const exportAllDataJSON = (): string => {
+    const backupObj = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      products,
+      invoices,
+      purchaseOrders,
+      vendors,
+      customers,
+      activities,
+      notifications,
+      categories,
+      users,
+    };
+    return JSON.stringify(backupObj, null, 2);
+  };
+
+  // Import Portable Data JSON (Syncs to localStorage and Supabase if connected)
+  const importAllDataJSON = async (jsonStr: string): Promise<{ success: boolean; error?: string; count?: number }> => {
+    try {
+      const data = JSON.parse(jsonStr);
+      let restoredCount = 0;
+
+      if (Array.isArray(data.products)) { setProducts(data.products); restoredCount += data.products.length; }
+      if (Array.isArray(data.invoices)) { setInvoices(data.invoices); restoredCount += data.invoices.length; }
+      if (Array.isArray(data.purchaseOrders)) { setPurchaseOrders(data.purchaseOrders); restoredCount += data.purchaseOrders.length; }
+      if (Array.isArray(data.vendors)) { setVendors(data.vendors); restoredCount += data.vendors.length; }
+      if (Array.isArray(data.customers)) { setCustomers(data.customers); restoredCount += data.customers.length; }
+      if (Array.isArray(data.activities)) setActivities(data.activities);
+      if (Array.isArray(data.notifications)) setNotifications(data.notifications);
+      if (Array.isArray(data.categories)) setCategories(data.categories);
+
+      // If Supabase is connected, push imported records to cloud database
+      const sb = getSupabase();
+      if (sb) {
+        if (Array.isArray(data.customers) && data.customers.length > 0) {
+          await sb.from('customers').upsert(data.customers).catch(() => {});
+        }
+        if (Array.isArray(data.vendors) && data.vendors.length > 0) {
+          await sb.from('vendors').upsert(data.vendors).catch(() => {});
+        }
+        if (Array.isArray(data.products) && data.products.length > 0) {
+          await sb.from('products').upsert(data.products).catch(() => {});
+        }
+        if (Array.isArray(data.invoices) && data.invoices.length > 0) {
+          await sb.from('invoices').upsert(data.invoices).catch(() => {});
+        }
+      }
+
+      await addActivity('system', 'System Data Backup Restored', `Restored ${restoredCount} records from backup JSON`);
+      return { success: true, count: restoredCount };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Invalid backup JSON file' };
+    }
+  };
+
+  // Push local data to Supabase database
+  const pushLocalToSupabase = async (): Promise<{ success: boolean; count?: number; error?: string }> => {
+    const sb = getSupabase();
+    if (!sb) return { success: false, error: 'Supabase cloud database is not connected' };
+
+    try {
+      let count = 0;
+      if (customers.length > 0) {
+        const { error } = await sb.from('customers').upsert(customers);
+        if (!error) count += customers.length;
+      }
+      if (vendors.length > 0) {
+        const { error } = await sb.from('vendors').upsert(vendors);
+        if (!error) count += vendors.length;
+      }
+      if (products.length > 0) {
+        const { error } = await sb.from('products').upsert(products);
+        if (!error) count += products.length;
+      }
+      if (invoices.length > 0) {
+        const { error } = await sb.from('invoices').upsert(invoices);
+        if (!error) count += invoices.length;
+      }
+      setSyncStatus('synced');
+      return { success: true, count };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to push local records to Supabase' };
+    }
   };
 
   const calcStatus = (qty: number, min: number): string => {
@@ -1088,6 +1200,9 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       disconnectSupabase,
       refreshData: fetchFromSupabase,
       markAllNotificationsRead,
+      exportAllDataJSON,
+      importAllDataJSON,
+      pushLocalToSupabase,
     }}>
       {children}
     </StockFlowContext.Provider>

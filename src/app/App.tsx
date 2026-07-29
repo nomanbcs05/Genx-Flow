@@ -12,7 +12,7 @@ import {
   MoreHorizontal, X, Check, AlertTriangle, Warehouse, Moon, Sun,
   LogOut, User, Building2, Truck, Receipt, Activity as ActivityIcon,
   Lock, Mail, Phone, Calendar, Clock, Tag, Box, Command, CheckCircle,
-  XCircle, AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight,
+  XCircle, AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight, ArrowDownLeft,
   Package2, UserCheck, MapPin, Sparkles, FileBarChart, SlidersHorizontal,
   HelpCircle, BarChart2, Zap, Globe, Shield, Key, Star, RefreshCw,
   Layers, Copy, ExternalLink, Inbox, Grid, List, Database,
@@ -39,6 +39,8 @@ import {
   AddVendorModal,
   AddCustomerModal,
   POSReceiptModal,
+  QuickLedgerModal,
+  DataSyncModal,
 } from "./components/Modals";
 
 import { PWAInstallBanner } from "./components/PWAInstallBanner";
@@ -406,12 +408,13 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
 // TOPBAR
 // ═══════════════════════════════════════════════════════════
 
-function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu, onOpenPWAInstall }: {
+function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu, onOpenPWAInstall, onOpenSyncModal }: {
   screen: string; setCommandOpen: (o: boolean) => void; setNotifOpen: (o: boolean) => void; unread: number;
   onOpenMobileMenu?: () => void;
   onOpenPWAInstall?: () => void;
+  onOpenSyncModal?: () => void;
 }) {
-  const { currentUser, logout, refreshData, isLoading } = useStockFlow();
+  const { currentUser, logout, refreshData, isLoading, isSupabaseConnected, syncStatus } = useStockFlow();
   const initials = currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "BS";
   const labels: Record<string, string> = {
     dashboard: "Executive Dashboard", inventory: "Inventory Management",
@@ -473,6 +476,23 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
           >
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Install App</span>
+          </button>
+        )}
+
+        {/* Cloud Sync Status Badge Button */}
+        {onOpenSyncModal && (
+          <button
+            onClick={onOpenSyncModal}
+            title={isSupabaseConnected ? 'Cloud Sync Active — Multi-PC Sync ON. Click to manage.' : 'Local Storage Mode — Click to Export Backup / Connect Cloud'}
+            className={cn(
+              "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all",
+              isSupabaseConnected
+                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+                : "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+            )}
+          >
+            <span className={cn("w-2 h-2 rounded-full", isSupabaseConnected ? "bg-emerald-500" : "bg-amber-500", syncStatus === 'syncing' && "animate-pulse")} />
+            <span className="hidden md:inline">{isSupabaseConnected ? 'Cloud Sync ON' : 'Local Only'}</span>
           </button>
         )}
 
@@ -2001,8 +2021,26 @@ function FinanceScreen() {
 function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
   const { customers, activities, updateCustomer, deleteCustomer } = useStockFlow();
   const [editingCust, setEditingCust] = useState<typeof customers[0] | null>(null);
+  const [selectedCustId, setSelectedCustId] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [ledgerModalType, setLedgerModalType] = useState<'debit' | 'credit' | null>(null);
   const [tab, setTab] = useState("Customers");
   const tabs = ["Customers", "Activities"];
+
+  // Search logic: Filter customers starting with or matching typed query
+  const filteredCustomers = customers.filter(c => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    return (
+      c.name.toLowerCase().startsWith(q) ||
+      c.name.toLowerCase().includes(q) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.city && c.city.toLowerCase().includes(q))
+    );
+  });
+
+  const selectedCustomer = customers.find(c => c.id === selectedCustId) || null;
 
   const actIcon = (type: string) => {
     const m: Record<string, { el: React.ReactNode; c: string }> = {
@@ -2018,6 +2056,16 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      {/* Quick Ledger Transaction Modal */}
+      {ledgerModalType && (
+        <QuickLedgerModal
+          open={ledgerModalType !== null}
+          onClose={() => setLedgerModalType(null)}
+          type={ledgerModalType}
+          selectedCustomerId={selectedCustId || (customers[0]?.id || '')}
+        />
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Relationship & Ledger (CRM)</h1>
@@ -2027,6 +2075,149 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
         </div>
         <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add Customer</Btn>
       </div>
+
+      {/* 500,000$ Look Search & Quick Debit / Credit Action Card */}
+      <Card className="p-5 bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border-slate-800 text-white shadow-xl relative overflow-visible">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Live Customer Search & Direct Ledger Manager</h2>
+            </div>
+            {selectedCustomer && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1.5 animate-in fade-in">
+                Selected Customer: <strong className="text-white">{selectedCustomer.name}</strong>
+                <button onClick={() => setSelectedCustId('')} title="Clear selection" className="hover:text-white p-0.5"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+          </div>
+
+          {/* Search Input Bar with Instant First-Letter Suggestion List */}
+          <div className="relative">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Type customer first letter or name (e.g. 'A' for Alexandra, 'M' for Marcus)..."
+                value={searchQuery}
+                onFocus={() => setIsSearchFocused(true)}
+                onChange={e => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchFocused(true);
+                }}
+                className="w-full pl-10 pr-10 py-3 rounded-xl bg-slate-800/90 border border-slate-700/80 text-white placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-inner font-medium"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setIsSearchFocused(false); }}
+                  className="absolute right-3 text-slate-400 hover:text-white p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Instant Filtered Customer Suggestions Dropdown List */}
+            {isSearchFocused && searchQuery.trim().length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-30 max-h-72 overflow-y-auto divide-y divide-slate-800/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-4 py-2 bg-slate-950/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center">
+                  <span>Customers starting with "{searchQuery}"</span>
+                  <span className="text-blue-400">{filteredCustomers.length} matching</span>
+                </div>
+                {filteredCustomers.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400">
+                    No customers found starting with "{searchQuery}"
+                  </div>
+                ) : (
+                  filteredCustomers.map(c => {
+                    const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCustId(c.id);
+                          setSearchQuery(c.name);
+                          setIsSearchFocused(false);
+                        }}
+                        className={`p-3.5 hover:bg-blue-600/30 cursor-pointer flex items-center justify-between transition-colors ${
+                          selectedCustId === c.id ? 'bg-blue-600/40 border-l-4 border-blue-400' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/30 to-purple-500/30 border border-blue-400/40 text-blue-300 font-bold text-xs flex items-center justify-center">
+                            {c.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-white flex items-center gap-2">
+                              {c.name}
+                              {c.city && <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">{c.city}</span>}
+                            </p>
+                            <p className="text-[10px] text-slate-400">{c.phone || 'No phone'} · Product: {c.product || 'N/A'}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] text-slate-400 block font-mono">NET BALANCE</span>
+                          <span className={`font-mono text-xs font-bold ${bal > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {fmtC(bal, true)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* $500,000 Look Debit and Credit Quick Buttons */}
+          <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* DEBIT BUTTON */}
+            <button
+              onClick={() => setLedgerModalType('debit')}
+              className="relative group overflow-hidden p-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-600 text-white font-bold transition-all duration-200 shadow-xl shadow-blue-600/25 active:scale-[0.98] border border-blue-400/30 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                  <TrendingUp className="w-5 h-5 text-blue-200" />
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black tracking-wide uppercase">Add Debit</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-400/30 text-blue-100 font-mono font-semibold">+ BILLED</span>
+                  </div>
+                  <p className="text-[11px] text-blue-100/80 font-normal">Record new invoice charge on customer ledger</p>
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center group-hover:translate-x-1 transition-transform">
+                <Plus className="w-4 h-4 text-white" />
+              </div>
+            </button>
+
+            {/* CREDIT BUTTON */}
+            <button
+              onClick={() => setLedgerModalType('credit')}
+              className="relative group overflow-hidden p-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:via-teal-500 hover:to-emerald-600 text-white font-bold transition-all duration-200 shadow-xl shadow-emerald-600/25 active:scale-[0.98] border border-emerald-400/30 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                  <ArrowDownLeft className="w-5 h-5 text-emerald-200" />
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black tracking-wide uppercase">Add Credit</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-400/30 text-emerald-100 font-mono font-semibold">- PAID</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-100/80 font-normal">Record payment received on customer ledger</p>
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center group-hover:translate-x-1 transition-transform">
+                <Plus className="w-4 h-4 text-white" />
+              </div>
+            </button>
+          </div>
+        </div>
+      </Card>
+
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === "Customers" && (
@@ -2103,17 +2294,33 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {customers.map(c => {
+                {filteredCustomers.map(c => {
                   const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                  const isSelected = selectedCustId === c.id;
                   return (
-                    <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedCustId(c.id)}
+                      className={cn(
+                        "hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group cursor-pointer",
+                        isSelected && "bg-blue-50/80 dark:bg-blue-950/30"
+                      )}
+                    >
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
-                            <span className="text-[10px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px]",
+                            isSelected
+                              ? "bg-blue-600 text-white shadow-md shadow-blue-500/30"
+                              : "bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 text-[#2563EB]"
+                          )}>
+                            <span>{c.name.split(" ").map(n => n[0]).join("")}</span>
                           </div>
                           <div>
-                            <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{c.name}</p>
+                            <p className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                              {c.name}
+                              {isSelected && <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-600 text-white font-bold uppercase">Active</span>}
+                            </p>
                             {c.company && <p className="text-[10px] text-slate-400">{c.company}</p>}
                           </div>
                         </div>
@@ -2134,7 +2341,7 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
                         </span>
                       </td>
                       <td className="px-3 py-3">{statusBadge(c.status)}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
@@ -3229,6 +3436,7 @@ function MainAppShell() {
   const [addPOModalOpen, setAddPOModalOpen] = useState(false);
   const [addVendorModalOpen, setAddVendorModalOpen] = useState(false);
   const [addCustomerModalOpen, setAddCustomerModalOpen] = useState(false);
+  const [dataSyncModalOpen, setDataSyncModalOpen] = useState(false);
 
   const unread = notifications.filter(n => !n.read).length;
 
@@ -3295,6 +3503,7 @@ function MainAppShell() {
           screen={screen} setCommandOpen={setCommandOpen} setNotifOpen={setNotifOpen} unread={unread}
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           onOpenPWAInstall={() => setPwaModalOpen(true)}
+          onOpenSyncModal={() => setDataSyncModalOpen(true)}
         />
 
         {/* Screen content */}
@@ -3352,6 +3561,7 @@ function MainAppShell() {
       <AddPOModal open={addPOModalOpen} onClose={() => setAddPOModalOpen(false)} />
       <AddVendorModal open={addVendorModalOpen} onClose={() => setAddVendorModalOpen(false)} />
       <AddCustomerModal open={addCustomerModalOpen} onClose={() => setAddCustomerModalOpen(false)} />
+      <DataSyncModal open={dataSyncModalOpen} onClose={() => setDataSyncModalOpen(false)} />
     </div>
   );
 }

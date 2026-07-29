@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Check, Database, AlertCircle, Plus, RefreshCw, Key, Globe, Package, DollarSign, User, Building2, Truck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Check, Database, AlertCircle, Plus, RefreshCw, Key, Globe, Package, DollarSign, User, Building2, Truck, TrendingUp, ArrowDownLeft, Download, Upload, Share2, Cloud, CloudOff, Copy, HardDrive } from 'lucide-react';
 import { useStockFlow, Product, Invoice, PurchaseOrder, Vendor, Customer } from '../context/StockFlowContext';
 
 // Helper modal wrapper
@@ -671,15 +671,25 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
   const { addVendor } = useStockFlow();
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
-  const [email, setEmail] = useState('');
+  const [paymentsSlot, setPaymentsSlot] = useState('Bank Transfer (HBL / IBAN)');
   const [terms, setTerms] = useState('Net 30');
+
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setContact('');
+      setPaymentsSlot('Bank Transfer (HBL / IBAN)');
+      setTerms('Net 30');
+    }
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await addVendor({
       name,
       contact,
-      email,
+      paymentsSlot,
+      paymentMethod: paymentsSlot,
       orders: 0,
       spend: 0,
       status: 'active',
@@ -716,14 +726,14 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Email Address</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payments / Account Slot</label>
             <input
-              type="email"
+              type="text"
               required
-              placeholder="d.lin@apex.io"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              placeholder="e.g. Bank Transfer (HBL / IBAN), Cash, Cheque"
+              value={paymentsSlot}
+              onChange={e => setPaymentsSlot(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
             />
           </div>
         </div>
@@ -753,24 +763,55 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
 
 // 7. ADD CUSTOMER MODAL
 export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { addCustomer } = useStockFlow();
+  const { customers, addCustomer } = useStockFlow();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
   const [product, setProduct] = useState('');
-  const [credit, setCredit] = useState(0);
-  const [debit, setDebit] = useState(0);
+  const [credit, setCredit] = useState<number | string>('');
+  const [debit, setDebit] = useState<number | string>('');
   const [status, setStatus] = useState('active');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Reset form fields cleanly every time modal is opened
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setPhone('');
+      setCity('');
+      setProduct('');
+      setCredit('');
+      setDebit('');
+      setStatus('active');
+      setErrorMsg('');
+    }
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg('');
+
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+
+    // Security Check: Verify customer does not already exist
+    const isDuplicate = customers.some(c => 
+      c.name.trim().toLowerCase() === trimmedName.toLowerCase() ||
+      (trimmedPhone && c.phone && c.phone.trim() === trimmedPhone)
+    );
+
+    if (isDuplicate) {
+      setErrorMsg(`Security Alert: Customer "${trimmedName}" already exists in CRM! Duplicate customer addition blocked.`);
+      return;
+    }
+
     const cr = Number(credit) || 0;
     const dr = Number(debit) || 0;
     await addCustomer({
-      name,
-      phone,
-      city,
-      product,
+      name: trimmedName,
+      phone: trimmedPhone,
+      city: city.trim(),
+      product: product.trim(),
       credit: cr,
       debit: dr,
       balance: dr - cr,
@@ -782,6 +823,12 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Modal open={open} onClose={onClose} title="Add New Customer Ledger">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 flex items-center gap-2 animate-in fade-in duration-200">
+            <span className="font-bold text-xs">⚠️ {errorMsg}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Customer Name</label>
@@ -790,7 +837,7 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
               required
               placeholder="e.g. Sarah Jenkins"
               value={name}
-              onChange={e => setName(e.target.value)}
+              onChange={e => { setName(e.target.value); setErrorMsg(''); }}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
@@ -801,7 +848,7 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
               required
               placeholder="e.g. +92 300 1234567"
               value={phone}
-              onChange={e => setPhone(e.target.value)}
+              onChange={e => { setPhone(e.target.value); setErrorMsg(''); }}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
@@ -838,8 +885,9 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
               type="number"
               step="0.01"
               min="0"
+              placeholder="0.00"
               value={debit}
-              onChange={e => setDebit(Number(e.target.value))}
+              onChange={e => setDebit(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
             />
           </div>
@@ -849,8 +897,9 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
               type="number"
               step="0.01"
               min="0"
+              placeholder="0.00"
               value={credit}
-              onChange={e => setCredit(Number(e.target.value))}
+              onChange={e => setCredit(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
             />
           </div>
@@ -870,8 +919,8 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
 
         <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex justify-between items-center text-xs">
           <span className="font-bold text-slate-600 dark:text-slate-400">Calculated Net Balance:</span>
-          <span className={`font-mono font-bold text-sm ${(Number(debit) - Number(credit)) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
-            PKR {(Number(debit) - Number(credit)).toLocaleString()}
+          <span className={`font-mono font-bold text-sm ${(Number(debit || 0) - Number(credit || 0)) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
+            PKR {(Number(debit || 0) - Number(credit || 0)).toLocaleString()}
           </span>
         </div>
 
@@ -1068,3 +1117,471 @@ export function POSReceiptModal({
     </Modal>
   );
 }
+
+// 9. QUICK LEDGER TRANSACTION MODAL (Debit / Credit)
+export function QuickLedgerModal({
+  open,
+  onClose,
+  type,
+  selectedCustomerId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  type: 'debit' | 'credit';
+  selectedCustomerId?: string;
+}) {
+  const { customers, updateCustomer, addActivity } = useStockFlow();
+  const [customerId, setCustomerId] = useState(selectedCustomerId || '');
+  const [amount, setAmount] = useState<number | string>('');
+  const [note, setNote] = useState('');
+  const [method, setMethod] = useState('Cash');
+
+  useEffect(() => {
+    if (open) {
+      setCustomerId(selectedCustomerId || (customers[0]?.id || ''));
+      setAmount('');
+      setNote('');
+      setMethod('Cash');
+    }
+  }, [open, selectedCustomerId, customers]);
+
+  const activeCustomer = customers.find(c => c.id === customerId);
+  const isDebit = type === 'debit';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCustomer || !amount) return;
+
+    const val = Number(amount) || 0;
+    if (val <= 0) return;
+
+    const curDebit = activeCustomer.debit || 0;
+    const curCredit = activeCustomer.credit || 0;
+
+    const newDebit = isDebit ? curDebit + val : curDebit;
+    const newCredit = !isDebit ? curCredit + val : curCredit;
+    const newBalance = newDebit - newCredit;
+
+    await updateCustomer(activeCustomer.id, {
+      debit: newDebit,
+      credit: newCredit,
+      balance: newBalance,
+    });
+
+    const actType = isDebit ? 'order' : 'payment';
+    const actTitle = isDebit
+      ? `Debit Added (PKR ${val.toLocaleString()})`
+      : `Credit Paid (PKR ${val.toLocaleString()})`;
+    const actBody = `${activeCustomer.name} · ${note || (isDebit ? 'Manual Billed Charge' : `Paid via ${method}`)}`;
+
+    await addActivity(actType, actTitle, actBody);
+    onClose();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isDebit ? "Post Debit Transaction (Customer Billed)" : "Post Credit Transaction (Payment Received)"}
+    >
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {/* Banner indicator */}
+        <div className={`p-4 rounded-xl border flex items-center justify-between ${
+          isDebit 
+            ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/60'
+            : 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60'
+        }`}>
+          <div>
+            <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${
+              isDebit ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'
+            }`}>
+              {isDebit ? 'DEBIT (+) BILLED' : 'CREDIT (-) PAID'}
+            </span>
+            <p className="text-sm font-bold text-slate-800 dark:text-white mt-1">
+              {isDebit ? 'Record New Billed Invoice / Charge' : 'Record Received Customer Payment'}
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] font-bold text-slate-400 block uppercase">Transaction Impact</span>
+            <span className={`font-mono font-black text-base ${isDebit ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {isDebit ? `+ PKR ${Number(amount || 0).toLocaleString()}` : `- PKR ${Number(amount || 0).toLocaleString()}`}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Select Customer</label>
+          <select
+            value={customerId}
+            onChange={e => setCustomerId(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+          >
+            {customers.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.phone || c.city}) — Net Bal: PKR {(c.balance ?? ((c.debit || 0) - (c.credit || 0))).toLocaleString()}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {activeCustomer && (
+          <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Debit</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">PKR {(activeCustomer.debit || 0).toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Credit</span>
+              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">PKR {(activeCustomer.credit || 0).toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Balance</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-white">PKR {(activeCustomer.balance ?? ((activeCustomer.debit || 0) - (activeCustomer.credit || 0))).toLocaleString()}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (PKR)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="e.g. 5000"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payment / Reference Method</label>
+            <select
+              value={method}
+              onChange={e => setMethod(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Bank Transfer">Bank Transfer (HBL/IBAN)</option>
+              <option value="Easypaisa / JazzCash">Easypaisa / JazzCash</option>
+              <option value="Cheque">Cheque / Demand Draft</option>
+              <option value="POS Card">Credit/Debit Card</option>
+              <option value="Other">Other Reference</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Note / Description / Invoice #</label>
+          <input
+            type="text"
+            placeholder={isDebit ? "e.g. Billed for 2x ProVision Monitors (Inv #1042)" : "e.g. Payment received against Inv #1042"}
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
+          <button
+            type="submit"
+            className={`px-5 py-2 rounded-lg text-white font-bold transition-all shadow-md ${
+              isDebit
+                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
+                : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+            }`}
+          >
+            {isDebit ? 'Confirm Debit Entry' : 'Confirm Credit Entry'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// 10. CROSS-DEVICE DATA SYNC & BACKUP MODAL
+export function DataSyncModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const {
+    isSupabaseConnected,
+    supabaseUrl,
+    supabaseKey,
+    connectSupabaseCredentials,
+    exportAllDataJSON,
+    importAllDataJSON,
+    pushLocalToSupabase,
+    refreshData,
+  } = useStockFlow();
+
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [quickCodeInput, setQuickCodeInput] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    if (open) setMessage(null);
+  }, [open]);
+
+  // Handle Export Backup
+  const handleExportBackup = () => {
+    try {
+      const jsonStr = exportAllDataJSON();
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const filename = `StockFlow_Full_ERP_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setMessage({ type: 'success', text: `Backup file "${filename}" downloaded successfully!` });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: 'Failed to generate backup export file.' });
+    }
+  };
+
+  // Handle Import Backup
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    setMessage(null);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const res = await importAllDataJSON(text);
+        if (res.success) {
+          setMessage({ type: 'success', text: `✓ Backup restored successfully! Loaded ${res.count} records.` });
+        } else {
+          setMessage({ type: 'error', text: res.error || 'Failed to import backup.' });
+        }
+      } catch (err: any) {
+        setMessage({ type: 'error', text: 'Invalid JSON file format.' });
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Generate Quick Multi-PC Cloud Link Code (Base64)
+  const getCloudLinkCode = () => {
+    if (!supabaseUrl || !supabaseKey) return '';
+    try {
+      return btoa(JSON.stringify({ u: supabaseUrl, k: supabaseKey }));
+    } catch {
+      return '';
+    }
+  };
+
+  const handleCopyCloudCode = () => {
+    const code = getCloudLinkCode();
+    if (code) {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2500);
+    }
+  };
+
+  const handleApplyQuickCode = async () => {
+    if (!quickCodeInput.trim()) return;
+    setIsProcessing(true);
+    setMessage(null);
+    try {
+      const decoded = JSON.parse(atob(quickCodeInput.trim()));
+      if (decoded.u && decoded.k) {
+        const ok = await connectSupabaseCredentials(decoded.u, decoded.k);
+        if (ok) {
+          setMessage({ type: 'success', text: '🟢 Connected to Cloud Database successfully! Multi-PC Sync active.' });
+          setQuickCodeInput('');
+        } else {
+          setMessage({ type: 'error', text: 'Could not connect using this cloud code.' });
+        }
+      } else {
+        setMessage({ type: 'error', text: 'Invalid Cloud Link Code format.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Invalid Cloud Link Code.' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePushLocalData = async () => {
+    setIsProcessing(true);
+    setMessage(null);
+    const res = await pushLocalToSupabase();
+    setIsProcessing(false);
+    if (res.success) {
+      setMessage({ type: 'success', text: `Uploaded ${res.count} local records to Cloud Database!` });
+    } else {
+      setMessage({ type: 'error', text: res.error || 'Failed to push local records.' });
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Cross-Device Data Sync & Backup Manager">
+      <div className="space-y-5 text-xs">
+        {/* Status Indicator Banner */}
+        <div className={`p-4 rounded-xl border flex items-center justify-between ${
+          isSupabaseConnected 
+            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+            : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white ${
+              isSupabaseConnected ? 'bg-emerald-600' : 'bg-amber-600'
+            }`}>
+              {isSupabaseConnected ? <Cloud className="w-5 h-5" /> : <HardDrive className="w-5 h-5" />}
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                {isSupabaseConnected ? '🟢 Cloud Database Active (Multi-PC Sync On)' : '🟡 Local Storage Only (PC-Isolated Mode)'}
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {isSupabaseConnected 
+                  ? 'All customers, ledgers, and transactions automatically sync across all your PCs & browsers.'
+                  : 'Data is saved on this browser only. Export backup or connect cloud sync to access from other PCs.'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {message && (
+          <div className={`p-3 rounded-xl border flex items-center gap-2 ${
+            message.type === 'success'
+              ? 'bg-emerald-100 dark:bg-emerald-950/80 border-emerald-300 text-emerald-900 dark:text-emerald-200'
+              : 'bg-red-100 dark:bg-red-950/80 border-red-300 text-red-900 dark:text-red-200'
+          }`}>
+            <span className="font-bold">{message.type === 'success' ? '✓' : '⚠️'} {message.text}</span>
+          </div>
+        )}
+
+        {/* SECTION 1: 1-CLICK BACKUP EXPORT & IMPORT */}
+        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                <Download className="w-4 h-4 text-[#2563EB]" />
+                1-Click Backup Export & Restore
+              </h3>
+              <p className="text-[10px] text-slate-500">Transfer 100% of your saved customers and ledgers between any PC without losing data.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              onClick={handleExportBackup}
+              className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-800 dark:text-slate-200 font-bold transition-all flex flex-col items-center justify-center gap-1 text-center"
+            >
+              <Download className="w-5 h-5 text-[#2563EB]" />
+              <span>Export Portable Backup</span>
+              <span className="text-[9px] font-normal text-slate-400">Save .json file to USB / Disk</span>
+            </button>
+
+            <label className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-800 dark:text-slate-200 font-bold transition-all flex flex-col items-center justify-center gap-1 text-center cursor-pointer">
+              <Upload className="w-5 h-5 text-emerald-600" />
+              <span>Import & Restore Backup</span>
+              <span className="text-[9px] font-normal text-slate-400">Upload .json file from another PC</span>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportBackup}
+                disabled={isProcessing}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* SECTION 2: MULTI-PC CLOUD SYNC CONFIGURATION */}
+        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                <Cloud className="w-4 h-4 text-emerald-600" />
+                Multi-PC Cloud Link Code
+              </h3>
+              <p className="text-[10px] text-slate-500">Connect multiple PCs to the same database so all browsers show identical live data.</p>
+            </div>
+          </div>
+
+          {isSupabaseConnected ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Your Device Cloud Link Code</span>
+                  <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate max-w-[240px] block">
+                    {getCloudLinkCode().slice(0, 30)}...
+                  </span>
+                </div>
+                <button
+                  onClick={handleCopyCloudCode}
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-[#2563EB] dark:text-blue-400 font-bold hover:bg-blue-100 flex items-center gap-1 shrink-0"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  {copiedCode ? 'Copied!' : 'Copy Code for PC #2'}
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handlePushLocalData}
+                  disabled={isProcessing}
+                  className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Cloud className="w-4 h-4" />
+                  Sync All Local Ledgers to Cloud
+                </button>
+                <button
+                  onClick={() => refreshData()}
+                  className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Paste Cloud Link Code from PC #1</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Paste link code copied from PC #1..."
+                    value={quickCodeInput}
+                    onChange={e => setQuickCodeInput(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-xs"
+                  />
+                  <button
+                    onClick={handleApplyQuickCode}
+                    disabled={isProcessing || !quickCodeInput.trim()}
+                    className="px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold disabled:opacity-50 shrink-0"
+                  >
+                    Connect & Sync
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-100 dark:border-slate-800 pt-3">
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-lg bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white font-bold"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
