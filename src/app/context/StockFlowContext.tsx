@@ -96,70 +96,14 @@ export const INITIAL_USERS: UserAccount[] = [
   { id: "usr-002", name: "Sarah Kim", email: "sarah@stockflow.io", password: "admin123", role: "Admin", company: "StockFlow Technologies Inc." },
 ];
 
-// Initial Mock Data Fallback
-export const INITIAL_PRODUCTS: Product[] = [
-  { id: "P001", sku: "ELC-MON-4K-27", name: "ProVision 4K Monitor 27\"", cat: "Electronics", qty: 142, min: 20, price: 449.99, status: "in_stock", wh: "WH-01" },
-  { id: "P002", sku: "ELC-KBD-MX-SLV", name: "MX Mechanical Keyboard Pro", cat: "Electronics", qty: 8, min: 15, price: 149.99, status: "low_stock", wh: "WH-01" },
-  { id: "P003", sku: "FRN-CHR-ERG-BLK", name: "ErgoFlow Pro Office Chair", cat: "Furniture", qty: 0, min: 5, price: 589.00, status: "out_of_stock", wh: "WH-02" },
-  { id: "P004", sku: "ELC-HPH-ANC-700", name: "QuietMax ANC Headphones", cat: "Electronics", qty: 234, min: 30, price: 279.99, status: "in_stock", wh: "WH-01" },
-  { id: "P005", sku: "FRN-DSK-STD-OAK", name: "StandUp Desk Pro 60\" Oak", cat: "Furniture", qty: 12, min: 8, price: 799.00, status: "in_stock", wh: "WH-02" },
-  { id: "P006", sku: "ELC-WEB-4K-WHT", name: "StreamCam 4K Webcam", cat: "Electronics", qty: 6, min: 20, price: 139.99, status: "low_stock", wh: "WH-01" },
-  { id: "P007", sku: "STA-NTB-B6-BLU", name: "Premium Notebook B6 Blue", cat: "Stationery", qty: 1240, min: 200, price: 12.99, status: "in_stock", wh: "WH-03" },
-  { id: "P008", sku: "ELC-HUB-C7-SLV", name: "USB-C Hub 7-in-1", cat: "Electronics", qty: 89, min: 25, price: 59.99, status: "in_stock", wh: "WH-01" },
-  { id: "P009", sku: "ELC-MSE-WL-GRY", name: "Precision Wireless Mouse", cat: "Electronics", qty: 67, min: 30, price: 89.99, status: "in_stock", wh: "WH-01" },
-  { id: "P010", sku: "FRN-LMP-DSK-WHT", name: "ArcLight LED Desk Lamp", cat: "Furniture", qty: 43, min: 15, price: 69.99, status: "in_stock", wh: "WH-02" },
-];
-
-export const INITIAL_INVOICES: Invoice[] = [
-  { id: "INV-2024-0847", customer: "Meridian Technologies Ltd.", date: "Dec 18, 2024", due: "Jan 17, 2025", amount: 12840.00, status: "paid", items: 8 },
-  { id: "INV-2024-0846", customer: "Apex Solutions Group", date: "Dec 17, 2024", due: "Jan 16, 2025", amount: 5620.50, status: "pending", items: 4 },
-  { id: "INV-2024-0845", customer: "Blue Horizon Corp.", date: "Dec 16, 2024", due: "Dec 30, 2024", amount: 3890.00, status: "overdue", items: 3 },
-  { id: "INV-2024-0844", customer: "NovaStar Retail Inc.", date: "Dec 15, 2024", due: "Jan 14, 2025", amount: 28450.00, status: "paid", items: 15 },
-  { id: "INV-2024-0843", customer: "Quantum Dynamics LLC", date: "Dec 14, 2024", due: "Jan 13, 2025", amount: 7200.00, status: "pending", items: 6 },
-  { id: "INV-2024-0842", customer: "Vertex Global Partners", date: "Dec 13, 2024", due: "Jan 12, 2025", amount: 15980.00, status: "draft", items: 11 },
-  { id: "INV-2024-0841", customer: "Clearview Systems Inc.", date: "Dec 12, 2024", due: "Jan 11, 2025", amount: 4320.00, status: "paid", items: 5 },
-];
-
-export const INITIAL_POS: PurchaseOrder[] = [
-  { id: "PO-2024-0234", vendor: "TechSource Global", date: "Dec 18, 2024", expected: "Dec 28, 2024", amount: 48200.00, items: 12, status: "approved" },
-  { id: "PO-2024-0233", vendor: "Pinnacle Supplies Co.", date: "Dec 17, 2024", expected: "Dec 25, 2024", amount: 12840.00, items: 6, status: "received" },
-  { id: "PO-2024-0232", vendor: "Metro Office Distributors", date: "Dec 16, 2024", expected: "Dec 26, 2024", amount: 8950.00, items: 9, status: "in_transit" },
-  { id: "PO-2024-0231", vendor: "Summit Electronics", date: "Dec 14, 2024", expected: "Dec 24, 2024", amount: 31700.00, items: 15, status: "received" },
-  { id: "PO-2024-0230", vendor: "Cornerstone Logistics", date: "Dec 12, 2024", expected: "Dec 22, 2024", amount: 5600.00, items: 3, status: "draft" },
-];
-
-export const INITIAL_VENDORS: Vendor[] = [
-  { id: "V001", name: "TechSource Global", contact: "David Huang", paymentsSlot: "Bank Transfer (HBL / IBAN-4019)", email: "dhuang@techsource.com", orders: 18, spend: 284200, status: "active", terms: "Net 30" },
-  { id: "V002", name: "Pinnacle Supplies Co.", contact: "Lisa Moreno", paymentsSlot: "Online Payment Gateway", email: "l.moreno@pinnacle.co", orders: 12, spend: 128400, status: "active", terms: "Net 15" },
-  { id: "V003", name: "Metro Office Distributors", contact: "Tom Bradley", paymentsSlot: "Cheque / Bank Draft", email: "t.bradley@metrooffice.com", orders: 8, spend: 67800, status: "active", terms: "Net 30" },
-  { id: "V004", name: "Summit Electronics", contact: "Priya Sharma", paymentsSlot: "Direct Wire Transfer", email: "p.sharma@summitelec.io", orders: 21, spend: 412600, status: "active", terms: "Net 45" },
-  { id: "V005", name: "Cornerstone Logistics", contact: "Ryan Walsh", paymentsSlot: "Cash on Delivery / Spot", email: "r.walsh@cornerstone.net", orders: 5, spend: 28000, status: "inactive", terms: "Net 30" },
-];
-
-export const INITIAL_CUSTOMERS: Customer[] = [
-  { id: "CUS-001", name: "Alexandra Chen", phone: "+92 300 5550101", city: "Lahore", product: "ProVision 4K Monitor 27\"", credit: 50000, debit: 84920, balance: 34920, status: "active", company: "Meridian Technologies", email: "a.chen@meridiantech.com", orders: 24, spend: 84920.00, tier: "enterprise" },
-  { id: "CUS-002", name: "Marcus Williams", phone: "+92 321 5550102", city: "Karachi", product: "MX Mechanical Keyboard Pro", credit: 30000, debit: 52340, balance: 22340, status: "active", company: "Apex Solutions Group", email: "m.williams@apexgroup.io", orders: 18, spend: 52340.00, tier: "professional" },
-  { id: "CUS-003", name: "Sophia Patel", phone: "+92 333 5550103", city: "Islamabad", product: "QuietMax ANC Headphones", credit: 18600, debit: 18600, balance: 0, status: "at_risk", company: "Blue Horizon Corp.", email: "s.patel@bluehorizon.com", orders: 7, spend: 18600.00, tier: "growth" },
-  { id: "CUS-004", name: "James O'Brien", phone: "+92 345 5550104", city: "Rawalpindi", product: "StandUp Desk Pro 60\"", credit: 200000, debit: 241800, balance: 41800, status: "active", company: "NovaStar Retail Inc.", email: "jobrien@novastar.retail", orders: 41, spend: 241800.00, tier: "enterprise" },
-  { id: "CUS-005", name: "Yuki Tanaka", phone: "+92 302 5550105", city: "Faisalabad", product: "StreamCam 4K Webcam", credit: 38200, debit: 38200, balance: 0, status: "active", company: "Quantum Dynamics LLC", email: "y.tanaka@qdynamics.co", orders: 12, spend: 38200.00, tier: "professional" },
-  { id: "CUS-006", name: "Elena Novak", phone: "+92 312 5550106", city: "Multan", product: "USB-C Hub 7-in-1", credit: 15000, debit: 29450, balance: 14450, status: "inactive", company: "Vertex Global Partners", email: "e.novak@vertexglobal.eu", orders: 9, spend: 29450.00, tier: "growth" },
-];
-
-export const INITIAL_ACTIVITIES: Activity[] = [
-  { id: 1, type: "payment", title: "Payment received", body: "$12,840 from Meridian Technologies Ltd.", time: "2h ago" },
-  { id: 2, type: "order", title: "New invoice issued", body: "INV-2024-0847 — 8 line items, $12,840", time: "2h ago" },
-  { id: 3, type: "alert", title: "Low stock alert", body: "MX Mechanical Keyboard Pro — 8 units remaining", time: "4h ago" },
-  { id: 4, type: "note", title: "Follow-up scheduled", body: "Call with Sophia Patel at Blue Horizon Corp.", time: "5h ago" },
-  { id: 5, type: "po", title: "Purchase order received", body: "PO-2024-0233 from Pinnacle Supplies Co.", time: "8h ago" },
-  { id: 6, type: "user", title: "New user added", body: "David Park joined the Finance team", time: "1d ago" },
-];
-
-export const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  { id: 1, type: "alert", title: "Low Stock: MX Keyboard Pro", body: "8 units remaining, below reorder point of 15.", time: "2h ago", read: false },
-  { id: 2, type: "payment", title: "Payment Received", body: "$12,840 from Meridian Technologies Ltd.", time: "2h ago", read: false },
-  { id: 3, type: "alert", title: "Overdue Invoice", body: "INV-2024-0845 overdue — Blue Horizon Corp., $3,890", time: "3h ago", read: false },
-  { id: 4, type: "info", title: "PO Received", body: "PO-2024-0233 from Pinnacle Supplies Co. confirmed.", time: "8h ago", read: true },
-];
+// No mock data — app always starts clean on every device
+export const INITIAL_PRODUCTS: Product[] = [];
+export const INITIAL_INVOICES: Invoice[] = [];
+export const INITIAL_POS: PurchaseOrder[] = [];
+export const INITIAL_VENDORS: Vendor[] = [];
+export const INITIAL_CUSTOMERS: Customer[] = [];
+export const INITIAL_ACTIVITIES: Activity[] = [];
+export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 interface StockFlowContextType {
   products: Product[];
@@ -244,44 +188,37 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('sf_products');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_PRODUCTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     const saved = localStorage.getItem('sf_invoices');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_INVOICES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
     const saved = localStorage.getItem('sf_pos');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_POS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [vendors, setVendors] = useState<Vendor[]>(() => {
     const saved = localStorage.getItem('sf_vendors');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_VENDORS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('sf_customers');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_CUSTOMERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [activities, setActivities] = useState<Activity[]>(() => {
     const saved = localStorage.getItem('sf_activities');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_ACTIVITIES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     const saved = localStorage.getItem('sf_notifications');
-    if (saved) return JSON.parse(saved);
-    return isCleanedCheck() ? [] : INITIAL_NOTIFICATIONS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [users, setUsers] = useState<UserAccount[]>(() => {
