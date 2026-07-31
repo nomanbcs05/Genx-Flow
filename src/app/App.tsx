@@ -91,10 +91,6 @@ function StockFlowLogo({ size = "md", showText = true, className, darkText = fal
 }
 
 function fmtC(n: number, compact = false): string {
-  if (compact) {
-    if (n >= 1_000_000) return `PKR ${(n / 1_000_000).toFixed(2)}M`;
-    if (n >= 1_000) return `PKR ${(n / 1_000).toFixed(1)}K`;
-  }
   return `PKR ${new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 }).format(n)}`;
 }
 
@@ -766,7 +762,7 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
+              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `PKR ${fmtN(v)}`} />
               <Tooltip content={<ChartTooltip />} />
               <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#2563EB" strokeWidth={2}
                 fill="url(#gRev)" dot={false} activeDot={{ r: 4, fill: "#2563EB", strokeWidth: 0 }} />
@@ -1592,7 +1588,7 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
               <LineChart data={REVENUE_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
+                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `PKR ${fmtN(v)}`} />
                 <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#2563EB" strokeWidth={2.5} dot={{ r: 3, fill: "#2563EB", strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </LineChart>
@@ -1877,14 +1873,14 @@ function FinanceScreen() {
       if (isNaN(d.getTime())) return;
       const m = MONTH_LABELS[d.getMonth()];
       if (!m) return;
-      byMonth[m].operating += Math.round((inv.amount || 0) / 1000);
+      byMonth[m].operating += Math.round(inv.amount || 0);
     });
     purchaseOrders.forEach(po => {
       const d = new Date(po.date ?? '');
       if (isNaN(d.getTime())) return;
       const m = MONTH_LABELS[d.getMonth()];
       if (!m) return;
-      byMonth[m].investing -= Math.round((po.total || 0) / 1000);
+      byMonth[m].investing -= Math.round(po.total || 0);
     });
     return MONTH_LABELS.map(m => ({ month: m, ...byMonth[m] }));
   }, [invoices, purchaseOrders]);
@@ -1987,7 +1983,7 @@ function FinanceScreen() {
 
       {tab === "Cash Flow" && (
         <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — FY {currentYear} (PKR thousands)</h3>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — FY {currentYear} (All figures in PKR)</h3>
           {invoices.length === 0 && purchaseOrders.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
@@ -1999,8 +1995,8 @@ function FinanceScreen() {
             <BarChart data={cashFlowData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}K`} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`${v}K PKR`, ""]} />
+              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `${fmtN(v)}`} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`${fmtC(Number(v))}`, ""]} />
               <Legend />
               <Bar dataKey="operating" name="Operating" fill="#2563EB" radius={[3, 3, 0, 0]} />
               <Bar dataKey="investing" name="Investing" fill="#F59E0B" radius={[3, 3, 0, 0]} />
@@ -2054,6 +2050,10 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
     return m[type] ?? m.note;
   };
 
+  const totalDebit = customers.reduce((s, c) => s + (c.debit || 0), 0);
+  const totalCredit = customers.reduce((s, c) => s + (c.credit || 0), 0);
+  const netBalance = customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0);
+
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       {/* Quick Ledger Transaction Modal */}
@@ -2066,67 +2066,134 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
         />
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Relationship & Ledger (CRM)</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {customers.length} ledger accounts · Total Billed (Debit): {fmtC(customers.reduce((s, c) => s + (c.debit || 0), 0))} · Total Paid (Credit): {fmtC(customers.reduce((s, c) => s + (c.credit || 0), 0))} · Net Balance: {fmtC(customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0))}
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Customer Relationship &amp; Ledger</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Manage your customer accounts, transactions and ledger</p>
         </div>
-        <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add Customer</Btn>
+        <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
+          Add Customer
+        </Btn>
       </div>
 
-      {/* 500,000$ Look Search & Quick Debit / Credit Action Card */}
-      <Card className="p-5 bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border-slate-800 text-white shadow-xl relative overflow-visible">
-        <div className="space-y-4">
+      {/* ── Stat Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Customers */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Customers</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-0.5 leading-none">{customers.length}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Active customers</p>
+          </div>
+        </div>
+
+        {/* Total Billed */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Billed</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 leading-tight truncate">{fmtC(totalDebit, true)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total amount billed</p>
+          </div>
+        </div>
+
+        {/* Total Paid */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-purple-200 dark:hover:border-purple-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <DollarSign className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Paid</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 leading-tight truncate">{fmtC(totalCredit, true)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total payments received</p>
+          </div>
+        </div>
+
+        {/* Net Balance */}
+        <div className={cn(
+          "rounded-2xl border shadow-sm p-5 flex items-center gap-4 group transition-all duration-200",
+          netBalance > 0
+            ? "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/40 hover:shadow-md hover:border-amber-300 dark:hover:border-amber-700/60"
+            : "bg-white dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/50 hover:shadow-md hover:border-red-200 dark:hover:border-red-800/50"
+        )}>
+          <div className={cn(
+            "w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200",
+            netBalance > 0 ? "bg-amber-100 dark:bg-amber-900/40" : "bg-red-50 dark:bg-red-950/40"
+          )}>
+            <Briefcase className={cn("w-5 h-5", netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-red-500 dark:text-red-400")} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Net Balance</p>
+            <p className={cn(
+              "text-lg font-bold mt-0.5 leading-tight truncate",
+              netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-red-500 dark:text-red-400"
+            )}>{fmtC(netBalance, true)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total outstanding</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Search & Quick Actions Panel ── */}
+      <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+        {/* Panel Header */}
+        <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700/60">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Live Customer Search & Direct Ledger Manager</h2>
+            <div className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Live Customer Search &amp; Direct Ledger Manager</h2>
             </div>
             {selectedCustomer && (
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1.5 animate-in fade-in">
-                Selected Customer: <strong className="text-white">{selectedCustomer.name}</strong>
-                <button onClick={() => setSelectedCustId('')} title="Clear selection" className="hover:text-white p-0.5"><X className="w-3 h-3" /></button>
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 flex items-center gap-1.5">
+                <span className="text-slate-500 dark:text-slate-400 font-normal">Selected:</span>
+                <strong>{selectedCustomer.name}</strong>
+                <button onClick={() => setSelectedCustId('')} className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             )}
           </div>
+        </div>
 
-          {/* Search Input Bar with Instant First-Letter Suggestion List */}
+        <div className="p-5 space-y-4">
+          {/* Search Input */}
           <div className="relative">
-            <div className="relative flex items-center">
-              <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Type customer first letter or name (e.g. 'A' for Alexandra, 'M' for Marcus)..."
-                value={searchQuery}
-                onFocus={() => setIsSearchFocused(true)}
-                onChange={e => {
-                  setSearchQuery(e.target.value);
-                  setIsSearchFocused(true);
-                }}
-                className="w-full pl-10 pr-10 py-3 rounded-xl bg-slate-800/90 border border-slate-700/80 text-white placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-inner font-medium"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => { setSearchQuery(''); setIsSearchFocused(false); }}
-                  className="absolute right-3 text-slate-400 hover:text-white p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Type customer first letter or name (e.g. 'A' for Alexandra, 'M' for Marcus)..."
+              value={searchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onChange={e => {
+                setSearchQuery(e.target.value);
+                setIsSearchFocused(true);
+              }}
+              className="w-full pl-11 pr-10 py-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 dark:focus:border-blue-600 transition-all font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setIsSearchFocused(false); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
 
-            {/* Instant Filtered Customer Suggestions Dropdown List */}
+            {/* Dropdown */}
             {isSearchFocused && searchQuery.trim().length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-30 max-h-72 overflow-y-auto divide-y divide-slate-800/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
-                <div className="px-4 py-2 bg-slate-950/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center">
-                  <span>Customers starting with "{searchQuery}"</span>
-                  <span className="text-blue-400">{filteredCustomers.length} matching</span>
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950/60 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center rounded-t-2xl">
+                  <span>Matching customers</span>
+                  <span className="text-blue-500">{filteredCustomers.length} results</span>
                 </div>
                 {filteredCustomers.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-slate-400">
-                    No customers found starting with "{searchQuery}"
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    No customers found for &ldquo;{searchQuery}&rdquo;
                   </div>
                 ) : (
                   filteredCustomers.map(c => {
@@ -2139,25 +2206,26 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
                           setSearchQuery(c.name);
                           setIsSearchFocused(false);
                         }}
-                        className={`p-3.5 hover:bg-blue-600/30 cursor-pointer flex items-center justify-between transition-colors ${
-                          selectedCustId === c.id ? 'bg-blue-600/40 border-l-4 border-blue-400' : ''
-                        }`}
+                        className={cn(
+                          "p-3.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer flex items-center justify-between transition-colors",
+                          selectedCustId === c.id && "bg-blue-50 dark:bg-blue-950/40 border-l-2 border-blue-500"
+                        )}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/30 to-purple-500/30 border border-blue-400/40 text-blue-300 font-bold text-xs flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-300/40 dark:border-blue-600/40 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center">
                             {c.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-white flex items-center gap-2">
+                            <p className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
                               {c.name}
-                              {c.city && <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">{c.city}</span>}
+                              {c.city && <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium">{c.city}</span>}
                             </p>
-                            <p className="text-[10px] text-slate-400">{c.phone || 'No phone'} · Product: {c.product || 'N/A'}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">{c.phone || 'No phone'} · {c.product || 'N/A'}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-[9px] text-slate-400 block font-mono">NET BALANCE</span>
-                          <span className={`font-mono text-xs font-bold ${bal > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          <span className="text-[9px] text-slate-400 block font-medium uppercase tracking-wide">Net Balance</span>
+                          <span className={cn("font-mono text-xs font-bold", bal > 0 ? 'text-amber-500' : 'text-emerald-500')}>
                             {fmtC(bal, true)}
                           </span>
                         </div>
@@ -2169,110 +2237,119 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
             )}
           </div>
 
-          {/* $500,000 Look Debit and Credit Quick Buttons */}
-          <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* DEBIT BUTTON */}
+          {/* Quick Action Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Add Debit */}
             <button
               onClick={() => setLedgerModalType('debit')}
-              className="relative group overflow-hidden p-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:via-indigo-500 hover:to-blue-600 text-white font-bold transition-all duration-200 shadow-xl shadow-blue-600/25 active:scale-[0.98] border border-blue-400/30 flex items-center justify-between"
+              className="group relative flex items-center justify-between p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-950/50 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md hover:shadow-blue-500/10 transition-all duration-200 active:scale-[0.99] text-left"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                  <TrendingUp className="w-5 h-5 text-blue-200" />
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30 group-hover:scale-110 transition-transform duration-200">
+                  <TrendingUp className="w-5 h-5 text-white" />
                 </div>
-                <div className="text-left">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-black tracking-wide uppercase">Add Debit</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-400/30 text-blue-100 font-mono font-semibold">+ BILLED</span>
+                    <span className="text-sm font-bold text-blue-700 dark:text-blue-300">Add Debit (Billed)</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-200 dark:bg-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold">INVOICE</span>
                   </div>
-                  <p className="text-[11px] text-blue-100/80 font-normal">Record new invoice charge on customer ledger</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record new invoice charge on customer ledger</p>
                 </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center group-hover:translate-x-1 transition-transform">
-                <Plus className="w-4 h-4 text-white" />
+              <div className="w-7 h-7 rounded-lg bg-blue-200 dark:bg-blue-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-blue-600 dark:text-blue-400">
+                <ChevronRight className="w-4 h-4" />
               </div>
             </button>
 
-            {/* CREDIT BUTTON */}
+            {/* Add Credit */}
             <button
               onClick={() => setLedgerModalType('credit')}
-              className="relative group overflow-hidden p-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:via-teal-500 hover:to-emerald-600 text-white font-bold transition-all duration-200 shadow-xl shadow-emerald-600/25 active:scale-[0.98] border border-emerald-400/30 flex items-center justify-between"
+              className="group relative flex items-center justify-between p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md hover:shadow-emerald-500/10 transition-all duration-200 active:scale-[0.99] text-left"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                  <ArrowDownLeft className="w-5 h-5 text-emerald-200" />
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 group-hover:scale-110 transition-transform duration-200">
+                  <ArrowDownLeft className="w-5 h-5 text-white" />
                 </div>
-                <div className="text-left">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-black tracking-wide uppercase">Add Credit</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-400/30 text-emerald-100 font-mono font-semibold">- PAID</span>
+                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">Add Credit (Paid)</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-200 dark:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300 font-semibold">PAYMENT</span>
                   </div>
-                  <p className="text-[11px] text-emerald-100/80 font-normal">Record payment received on customer ledger</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record payment received on customer ledger</p>
                 </div>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center group-hover:translate-x-1 transition-transform">
-                <Plus className="w-4 h-4 text-white" />
+              <div className="w-7 h-7 rounded-lg bg-emerald-200 dark:bg-emerald-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-emerald-600 dark:text-emerald-400">
+                <ChevronRight className="w-4 h-4" />
               </div>
             </button>
           </div>
         </div>
-      </Card>
+      </div>
 
+      {/* ── Tabs ── */}
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
+      {/* ── Customers Table ── */}
       {tab === "Customers" && (
-        <Card className="p-5">
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
           {/* Inline Edit Panel */}
           {editingCust && (
-            <div className="mb-4 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-[#2563EB]/20 space-y-3 animate-in fade-in duration-150">
+            <div className="m-5 p-4 rounded-xl bg-blue-50/80 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 space-y-3 animate-in fade-in duration-200">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-800 dark:text-white">Editing Ledger: {editingCust.name}</p>
-                <button onClick={() => setEditingCust(null)} className="text-slate-400 hover:text-slate-700 p-1"><X className="w-4 h-4" /></button>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center">
+                    <Edit2 className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-white">Editing: {editingCust.name}</p>
+                </div>
+                <button onClick={() => setEditingCust(null)} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Customer Name</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Customer Name</label>
                   <input value={editingCust.name || ''} onChange={e => setEditingCust({ ...editingCust, name: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Phone Number</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Phone Number</label>
                   <input value={editingCust.phone || ''} onChange={e => setEditingCust({ ...editingCust, phone: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">City</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">City</label>
                   <input value={editingCust.city || ''} onChange={e => setEditingCust({ ...editingCust, city: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Product</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Product</label>
                   <input value={editingCust.product || ''} onChange={e => setEditingCust({ ...editingCust, product: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Debit (Billed)</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Debit (Billed)</label>
                   <input type="number" value={editingCust.debit || 0} onChange={e => setEditingCust({ ...editingCust, debit: Number(e.target.value) })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Credit (Paid)</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Credit (Paid)</label>
                   <input type="number" value={editingCust.credit || 0} onChange={e => setEditingCust({ ...editingCust, credit: Number(e.target.value) })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white" />
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Status</label>
                   <select value={editingCust.status} onChange={e => setEditingCust({ ...editingCust, status: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400">
                     <option value="active">Active</option>
                     <option value="at_risk">At Risk</option>
                     <option value="inactive">Inactive</option>
                   </select>
                 </div>
                 <div className="flex flex-col justify-end">
-                  <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Net Balance</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-white">{fmtC((editingCust.debit || 0) - (editingCust.credit || 0), true)}</span>
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wide">Net Balance</span>
+                    <span className="font-mono font-bold text-sm text-slate-800 dark:text-white">{fmtC((editingCust.debit || 0) - (editingCust.credit || 0), true)}</span>
                   </div>
                 </div>
               </div>
@@ -2282,19 +2359,33 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
               </div>
             </div>
           )}
-          <div className="overflow-x-auto -mx-5">
+
+          {/* Table */}
+          <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[850px]">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-700">
-                  {["Name", "Phone", "City", "Product", "Credit", "Debit", "Balance", "Status", "Actions"].map((h, i) => (
-                    <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left",
+                <tr className="border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/30">
+                  {["Customer", "Phone", "City", "Product", "Credit", "Debit", "Balance", "Status", "Actions"].map((h, i) => (
+                    <th key={i} className={cn(
+                      "py-3 px-4 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left first:pl-6 last:pr-6",
                       ["Credit", "Debit", "Balance"].includes(h) && "text-right",
-                      h === "Actions" && "text-center")}>{h}</th>
+                      h === "Actions" && "text-center"
+                    )}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {filteredCustomers.map(c => {
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40">
+                {filteredCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-16 text-center">
+                      <div className="flex flex-col items-center gap-3 text-slate-400">
+                        <Users className="w-10 h-10 opacity-30" />
+                        <p className="text-sm font-medium">No customers found</p>
+                        <p className="text-xs">Add a customer or adjust your search</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredCustomers.map(c => {
                   const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
                   const isSelected = selectedCustId === c.id;
                   return (
@@ -2302,58 +2393,70 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
                       key={c.id}
                       onClick={() => setSelectedCustId(c.id)}
                       className={cn(
-                        "hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group cursor-pointer",
-                        isSelected && "bg-blue-50/80 dark:bg-blue-950/30"
+                        "hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-all duration-150 group cursor-pointer",
+                        isSelected && "bg-blue-50/60 dark:bg-blue-950/20 border-l-2 border-blue-500"
                       )}
                     >
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2.5">
+                      {/* Name */}
+                      <td className="pl-6 pr-4 py-3.5">
+                        <div className="flex items-center gap-3">
                           <div className={cn(
-                            "w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px]",
+                            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs transition-all",
                             isSelected
-                              ? "bg-blue-600 text-white shadow-md shadow-blue-500/30"
-                              : "bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 text-[#2563EB]"
+                              ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30"
+                              : "bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950/40 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/40"
                           )}>
-                            <span>{c.name.split(" ").map(n => n[0]).join("")}</span>
+                            {c.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
                               {c.name}
-                              {isSelected && <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-600 text-white font-bold uppercase">Active</span>}
                             </p>
-                            {c.company && <p className="text-[10px] text-slate-400">{c.company}</p>}
+                            {c.company && <p className="text-[10px] text-slate-400 dark:text-slate-500">{c.company}</p>}
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-slate-600 dark:text-slate-300 text-xs font-medium">{c.phone || '-'}</td>
-                      <td className="px-3 py-3 text-slate-600 dark:text-slate-300 text-xs">{c.city || '-'}</td>
-                      <td className="px-3 py-3 text-slate-700 dark:text-slate-300 text-xs font-medium max-w-[180px] truncate" title={c.product}>{c.product || '-'}</td>
-                      <td className="px-3 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0, true)}</td>
-                      <td className="px-3 py-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0, true)}</td>
-                      <td className="px-3 py-3 text-right font-mono font-bold">
+                      <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400 text-xs font-medium">{c.phone || <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+                      <td className="px-4 py-3.5">
+                        {c.city ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
+                            <MapPin className="w-3 h-3 text-slate-400" />{c.city}
+                          </span>
+                        ) : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                      </td>
+                      <td className="px-4 py-3.5 text-slate-700 dark:text-slate-300 text-xs font-medium max-w-[150px] truncate" title={c.product}>{c.product || <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0, true)}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0, true)}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
                         <span className={cn(
-                          "px-2 py-0.5 rounded text-xs",
-                          bal > 0 ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60" :
-                          bal < 0 ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/60" :
-                          "text-slate-600 dark:text-slate-400"
+                          "inline-block px-2.5 py-1 rounded-lg text-xs font-mono font-bold",
+                          bal > 0
+                            ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60"
+                            : bal < 0
+                            ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/60"
+                            : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-600"
                         )}>
                           {fmtC(bal, true)}
                         </span>
                       </td>
-                      <td className="px-3 py-3">{statusBadge(c.status)}</td>
-                      <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1">
+                      <td className="px-4 py-3.5">{statusBadge(c.status)}</td>
+                      <td className="pr-6 pl-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                            title="Edit customer ledger"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 transition-all duration-150 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/60"
+                            title="Edit customer"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => { if (confirm(`Delete customer ledger for "${c.name}"?`)) deleteCustomer(c.id); }}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                            title="Delete customer ledger"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-all duration-150 border border-transparent hover:border-red-200 dark:hover:border-red-800/60"
+                            title="Delete customer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -2365,34 +2468,57 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
               </tbody>
             </table>
           </div>
-        </Card>
+
+          {/* Table Footer */}
+          {filteredCustomers.length > 0 && (
+            <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-700/60 bg-slate-50/40 dark:bg-slate-900/20 flex items-center justify-between">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                Showing <span className="font-semibold text-slate-600 dark:text-slate-300">{filteredCustomers.length}</span> of <span className="font-semibold text-slate-600 dark:text-slate-300">{customers.length}</span> customers
+              </p>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-slate-400">Net Outstanding:</span>
+                <span className={cn("font-mono font-bold", netBalance > 0 ? "text-red-500" : "text-emerald-600 dark:text-emerald-400")}>{fmtC(netBalance, true)}</span>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
+      {/* ── Activities Timeline ── */}
       {tab === "Activities" && (
-        <Card className="p-5">
-          <div className="space-y-0">
-            {activities.map((act, i) => {
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent Activity</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Live feed of customer ledger changes</p>
+          </div>
+          <div className="p-5 space-y-0">
+            {activities.length === 0 ? (
+              <div className="py-12 flex flex-col items-center gap-3 text-slate-400">
+                <ActivityIcon className="w-10 h-10 opacity-30" />
+                <p className="text-sm font-medium">No activities yet</p>
+              </div>
+            ) : activities.map((act, i) => {
               const { el, c } = actIcon(act.type);
               return (
-                <div key={act.id} className="flex gap-3 py-3 border-b border-slate-50 dark:border-slate-700/40 last:border-0">
+                <div key={act.id} className="flex gap-4 py-3.5 border-b border-slate-50 dark:border-slate-700/30 last:border-0">
                   <div className="flex flex-col items-center shrink-0">
-                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0", c)}>{el}</div>
-                    {i < activities.length - 1 && <div className="w-px flex-1 bg-slate-100 dark:bg-slate-700 mt-2" />}
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm", c)}>{el}</div>
+                    {i < activities.length - 1 && <div className="w-px flex-1 bg-slate-100 dark:bg-slate-700/60 mt-2" />}
                   </div>
                   <div className="flex-1 min-w-0 pb-2">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{act.title}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{act.body}</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{act.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{act.body}</p>
                       </div>
-                      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{act.time}</span>
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0 mt-0.5 bg-slate-50 dark:bg-slate-700/40 px-2 py-0.5 rounded-md font-medium">{act.time}</span>
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );
