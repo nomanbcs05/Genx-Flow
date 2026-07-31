@@ -471,6 +471,19 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const { data: notifData } = await sb.from('notifications').select('*').order('id', { ascending: false }).limit(20);
       if (notifData && notifData.length > 0) setNotifications(notifData);
 
+      // 8. Users
+      const { data: uData } = await sb.from('users').select('*');
+      if (uData && uData.length > 0) {
+        setUsers(uData.map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          password: u.password,
+          role: u.role,
+          company: u.company,
+        })));
+      }
+
       setIsSupabaseConnected(true);
       setSyncStatus('synced');
     } catch (err: any) {
@@ -527,7 +540,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSyncStatus('offline');
   };
 
-  // Auto-sync polling and window focus refetching when cloud connected
+  // Realtime Supabase channel & auto-sync polling across mobile and laptop devices
   useEffect(() => {
     if (!isSupabaseConnected) return;
 
@@ -538,11 +551,29 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     window.addEventListener('focus', handleFocus);
     const interval = setInterval(() => {
       fetchFromSupabase().catch(() => {});
-    }, 25000); // 25s background polling across devices
+    }, 10000); // 10s background sync across devices
+
+    // Supabase Realtime channel subscription
+    const sb = getSupabase();
+    let channel: any = null;
+    if (sb) {
+      try {
+        channel = sb.channel('stockflow-realtime-sync')
+          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+            fetchFromSupabase().catch(() => {});
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime subscription error:', err);
+      }
+    }
 
     return () => {
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
+      if (channel && sb) {
+        sb.removeChannel(channel);
+      }
     };
   }, [isSupabaseConnected, supabaseUrl, supabaseKey]);
 

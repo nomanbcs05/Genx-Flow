@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Database, AlertCircle, Plus, RefreshCw, Key, Globe, Package, DollarSign, User, Building2, Truck, TrendingUp, ArrowDownLeft, Download, Upload, Share2, Cloud, CloudOff, Copy, HardDrive } from 'lucide-react';
+import { X, Check, Database, AlertCircle, Plus, RefreshCw, Key, Globe, Package, DollarSign, User, Building2, Truck, TrendingUp, ArrowDownLeft, Download, Upload, Share2, Cloud, CloudOff, Copy, HardDrive, Smartphone } from 'lucide-react';
 import { useStockFlow, Product, Invoice, PurchaseOrder, Vendor, Customer } from '../context/StockFlowContext';
 
 // Helper modal wrapper
@@ -84,6 +84,43 @@ export function SupabaseConfigModal({ open, onClose }: { open: boolean; onClose:
               />
             </div>
           </div>
+
+          {isSupabaseConnected && (
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">Mobile Device Cross-Sync Link</p>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">Live Sync Ready</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                Open this app on your mobile phone and paste this sync link (or open directly in your phone browser) to automatically pair your phone with this exact cloud database.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const shareLink = `${window.location.origin}${window.location.pathname}#config=${btoa(JSON.stringify({ u: supabaseUrl || urlInput, k: supabaseKey || keyInput }))}`;
+                  navigator.clipboard.writeText(shareLink);
+                  setCopiedSql(true);
+                  setTimeout(() => setCopiedSql(false), 3000);
+                }}
+                className="w-full py-2 px-3 rounded-lg bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors shadow-sm"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    Mobile Sync Link Copied to Clipboard!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Copy Mobile Sync Link (Pairs Phone Instantly)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
 
           <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 space-y-2">
             <p className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
