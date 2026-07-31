@@ -259,6 +259,28 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('offline');
   const [lastError, setLastError] = useState<string | null>(null);
 
+  // Automatic legacy mock data purge to guarantee 100% real database start
+  useEffect(() => {
+    const isCleaned = localStorage.getItem('sf_clean_v3');
+    if (!isCleaned) {
+      localStorage.setItem('sf_products', JSON.stringify([]));
+      localStorage.setItem('sf_invoices', JSON.stringify([]));
+      localStorage.setItem('sf_pos', JSON.stringify([]));
+      localStorage.setItem('sf_vendors', JSON.stringify([]));
+      localStorage.setItem('sf_customers', JSON.stringify([]));
+      localStorage.setItem('sf_activities', JSON.stringify([]));
+      localStorage.setItem('sf_notifications', JSON.stringify([]));
+      localStorage.setItem('sf_clean_v3', 'true');
+      setProducts([]);
+      setInvoices([]);
+      setPurchaseOrders([]);
+      setVendors([]);
+      setCustomers([]);
+      setActivities([]);
+      setNotifications([]);
+    }
+  }, []);
+
   // Sync to LocalStorage as fallback
   useEffect(() => { localStorage.setItem('sf_products', JSON.stringify(products)); }, [products]);
   useEffect(() => { localStorage.setItem('sf_invoices', JSON.stringify(invoices)); }, [invoices]);
