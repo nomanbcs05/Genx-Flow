@@ -1957,48 +1957,48 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
           </div>
         </div>
 
-        {/* Total Billed */}
-        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800/50 transition-all duration-200">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
-            <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+        {/* Debit */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Billed</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 leading-tight truncate">{fmtC(totalDebit, true)}</p>
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Debit</p>
+            <p className="text-lg font-bold text-blue-700 dark:text-blue-300 mt-0.5 leading-tight truncate">{fmtC(totalDebit, true)}</p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total amount billed</p>
           </div>
         </div>
 
-        {/* Total Paid */}
-        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-purple-200 dark:hover:border-purple-800/50 transition-all duration-200">
-          <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
-            <DollarSign className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+        {/* Credit */}
+        <div className="bg-red-50/60 dark:bg-red-950/20 rounded-2xl border border-red-200/80 dark:border-red-800/40 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-red-300 dark:hover:border-red-700/60 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <ArrowDownLeft className="w-5 h-5 text-red-600 dark:text-red-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Paid</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 leading-tight truncate">{fmtC(totalCredit, true)}</p>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total payments received</p>
+            <p className="text-[11px] font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Credit</p>
+            <p className="text-lg font-bold text-red-600 dark:text-red-400 mt-0.5 leading-tight truncate">{fmtC(totalCredit, true)}</p>
+            <p className="text-[11px] text-red-400 dark:text-red-500 mt-1">Total payments received</p>
           </div>
         </div>
 
-        {/* Net Balance */}
+        {/* Balance */}
         <div className={cn(
           "rounded-2xl border shadow-sm p-5 flex items-center gap-4 group transition-all duration-200",
           netBalance > 0
             ? "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/40 hover:shadow-md hover:border-amber-300 dark:hover:border-amber-700/60"
-            : "bg-white dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/50 hover:shadow-md hover:border-red-200 dark:hover:border-red-800/50"
+            : "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60"
         )}>
           <div className={cn(
             "w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200",
-            netBalance > 0 ? "bg-amber-100 dark:bg-amber-900/40" : "bg-red-50 dark:bg-red-950/40"
+            netBalance > 0 ? "bg-amber-100 dark:bg-amber-900/40" : "bg-emerald-100 dark:bg-emerald-900/40"
           )}>
-            <Briefcase className={cn("w-5 h-5", netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-red-500 dark:text-red-400")} />
+            <Briefcase className={cn("w-5 h-5", netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")} />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Net Balance</p>
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Balance</p>
             <p className={cn(
               "text-lg font-bold mt-0.5 leading-tight truncate",
-              netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-red-500 dark:text-red-400"
+              netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
             )}>{fmtC(netBalance, true)}</p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total outstanding</p>
           </div>
