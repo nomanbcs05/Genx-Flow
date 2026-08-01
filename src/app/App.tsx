@@ -272,7 +272,7 @@ const NAV = [
     { id: "purchase", label: "Purchasing", icon: Truck },
   ]},
   { section: "FINANCE", items: [
-    { id: "finance", label: "Finance", icon: DollarSign },
+    { id: "finance", label: "Expence", icon: DollarSign },
   ]},
   { section: "OPERATIONS", items: [
     { id: "crm", label: "CRM", icon: Users },
@@ -414,7 +414,7 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
   const initials = currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "BS";
   const labels: Record<string, string> = {
     dashboard: "Executive Dashboard", inventory: "Inventory Management",
-    sales: "Sales", purchase: "Purchasing", finance: "Finance",
+    sales: "Sales", purchase: "Purchasing", finance: "Expence",
     crm: "Customer Relationship", reports: "Reports", settings: "Settings",
   };
 
@@ -1672,205 +1672,377 @@ function PurchaseScreen({ onOpenAddPO, onOpenAddVendor }: { onOpenAddPO: () => v
 // FINANCE
 // ═══════════════════════════════════════════════════════════
 
-function FinanceScreen() {
-  const { invoices, purchaseOrders, products } = useStockFlow();
-  const [tab, setTab] = useState("P&L");
-  const tabs = ["P&L", "Balance Sheet", "Cash Flow"];
+function ExpenseScreen() {
+  const { expenses = [], addExpense, deleteExpense } = useStockFlow();
+  const [activeTab, setActiveTab] = useState<'all' | 'salary' | 'mill' | 'fuel' | 'loader'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  // ── P&L: quarter buckets derived from real invoices & purchase orders ──
-  const plData = useMemo(() => {
-    const qRev = [0, 0, 0, 0];
-    const qCost = [0, 0, 0, 0];
-    invoices.forEach(inv => {
-      const d = new Date(inv.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const q = Math.floor(d.getMonth() / 3);
-      qRev[q] += inv.amount || 0;
-    });
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const q = Math.floor(d.getMonth() / 3);
-      qCost[q] += po.total ?? 0;
-    });
-    const qGross = qRev.map((r, i) => r - qCost[i]);
-    const opex = qRev.map(r => r * 0.15); // estimate 15% opex of revenue
-    const ebitda = qGross.map((g, i) => g - opex[i]);
-    const netInc = ebitda.map(e => e * 0.93); // ~7% tax/interest
-    return [
-      { label: "Revenue",            q1: qRev[0],   q2: qRev[1],   q3: qRev[2],   q4: qRev[3],   type: "revenue" },
-      { label: "Cost of Goods Sold", q1: qCost[0],  q2: qCost[1],  q3: qCost[2],  q4: qCost[3],  type: "cost" },
-      { label: "Gross Profit",       q1: qGross[0], q2: qGross[1], q3: qGross[2], q4: qGross[3], type: "profit" },
-      { label: "Operating Expenses", q1: opex[0],   q2: opex[1],   q3: opex[2],   q4: opex[3],   type: "sub" },
-      { label: "EBITDA",             q1: ebitda[0], q2: ebitda[1], q3: ebitda[2], q4: ebitda[3], type: "profit" },
-      { label: "Net Income",         q1: netInc[0], q2: netInc[1], q3: netInc[2], q4: netInc[3], type: "profit" },
-    ];
-  }, [invoices, purchaseOrders]);
+  // Form State
+  const [cat, setCat] = useState<'salary' | 'mill' | 'fuel' | 'loader'>('salary');
+  const [amount, setAmount] = useState<number | string>('');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
 
-  // ── Balance Sheet: computed from real inventory, invoices, POs ──
-  const balanceSheet = useMemo(() => {
-    const inventoryVal = products.reduce((s, p) => s + (p.price || 0) * (p.qty || 0), 0);
-    const accountsReceivable = invoices.filter(i => i.status === 'pending' || i.status === 'overdue').reduce((s, i) => s + (i.amount || 0), 0);
-    const accountsPayable = purchaseOrders.filter(po => po.status === 'pending' || po.status === 'ordered').reduce((s, po) => s + (po.total || 0), 0);
-    const totalRevenue = invoices.reduce((s, i) => s + (i.status === 'paid' ? (i.amount || 0) : 0), 0);
-    const totalCosts = purchaseOrders.reduce((s, po) => s + (po.total || 0), 0);
-    const retainedEarnings = Math.max(0, totalRevenue - totalCosts);
-    return {
-      assets: [
-        { label: "Accounts Receivable", value: accountsReceivable },
-        { label: "Inventory (Stock Value)", value: inventoryVal },
-      ],
-      liabilities: [
-        { label: "Accounts Payable", value: accountsPayable },
-      ],
-      equity: [
-        { label: "Retained Earnings", value: retainedEarnings },
-      ],
-    };
-  }, [invoices, purchaseOrders, products]);
+  const totalExpense = useMemo(() => expenses.reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const salaryExpense = useMemo(() => expenses.filter(e => e.category === 'salary').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const millExpense = useMemo(() => expenses.filter(e => e.category === 'mill').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const fuelExpense = useMemo(() => expenses.filter(e => e.category === 'fuel').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const loaderExpense = useMemo(() => expenses.filter(e => e.category === 'loader').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
 
-  // ── Cash Flow: monthly operating cash derived from paid invoices minus PO spend ──
-  const cashFlowData = useMemo(() => {
-    const byMonth: Record<string, { operating: number; investing: number; financing: number }> = {};
-    MONTH_LABELS.forEach(m => { byMonth[m] = { operating: 0, investing: 0, financing: 0 }; });
-    invoices.forEach(inv => {
-      if (inv.status !== 'paid') return;
-      const d = new Date(inv.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].operating += Math.round(inv.amount || 0);
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(e => {
+      const matchCat = activeTab === 'all' || e.category === activeTab;
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery = !q || e.description.toLowerCase().includes(q) || e.id.toLowerCase().includes(q);
+      return matchCat && matchQuery;
     });
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].investing -= Math.round(po.total || 0);
-    });
-    return MONTH_LABELS.map(m => ({ month: m, ...byMonth[m] }));
-  }, [invoices, purchaseOrders]);
+  }, [expenses, activeTab, searchQuery]);
 
-  const currentYear = new Date().getFullYear();
+  const chartData = useMemo(() => [
+    { name: 'Salary', amount: salaryExpense, fill: '#3B82F6' },
+    { name: 'Mill Exp.', amount: millExpense, fill: '#8B5CF6' },
+    { name: 'Fuel', amount: fuelExpense, fill: '#F59E0B' },
+    { name: 'Loader Exp.', amount: loaderExpense, fill: '#10B981' },
+  ], [salaryExpense, millExpense, fuelExpense, loaderExpense]);
+
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(amount) || 0;
+    if (val <= 0) return;
+    addExpense({
+      category: cat,
+      amount: val,
+      description: description.trim() || `${cat.toUpperCase()} Expense`,
+      date: date || new Date().toISOString().slice(0, 10),
+    });
+    setAmount('');
+    setDescription('');
+    setShowAddModal(false);
+  };
+
+  const getCatLabel = (category: string) => {
+    switch (category) {
+      case 'salary': return { label: 'Salary', icon: Briefcase, bg: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800/40' };
+      case 'mill': return { label: 'Mill Expenses', icon: Building2, bg: 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800/40' };
+      case 'fuel': return { label: 'Fuel', icon: Zap, bg: 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40' };
+      case 'loader': return { label: 'Loader Expenses', icon: Truck, bg: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40' };
+      default: return { label: category, icon: DollarSign, bg: 'bg-slate-50 text-slate-600' };
+    }
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* ── Top Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Finance & Accounting</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Fiscal Year {currentYear} · All figures in PKR</p>
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-xl shadow-md shadow-blue-500/20">
+              <DollarSign className="w-5 h-5" />
+            </span>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Expense Management</h1>
+          </div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+            Track and manage business operational expenses: Salary, Mill, Fuel &amp; Loader Expenses
+          </p>
         </div>
-        <Btn variant="outline" size="sm" icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
-      </div>
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-      {tab === "P&L" && (
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Profit & Loss Statement — FY {currentYear}</h3>
-          {invoices.length === 0 && purchaseOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
-              <p className="text-sm font-medium">No financial data yet</p>
-              <p className="text-xs mt-1">Add invoices and purchase orders to see your P&L statement</p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Post Expense Entry</span>
+        </button>
+      </div>
+
+      {/* ── Analytics KPI Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Total Expenses */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden border border-slate-700/60">
+          <div className="absolute right-3 bottom-3 opacity-10 text-white">
+            <DollarSign className="w-20 h-20" />
+          </div>
+          <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Total Expenses</p>
+          <p className="text-2xl font-black mt-2 leading-none text-white font-mono">{fmtC(totalExpense)}</p>
+          <p className="text-[10px] text-slate-400 mt-2 font-medium">All logged categories combined</p>
+        </div>
+
+        {/* Salary */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <Briefcase className="w-5 h-5" />
             </div>
-          ) : (
-          <div className="overflow-x-auto -mx-5">
-            <table className="w-full text-sm min-w-[600px]">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Salary</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(salaryExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Mill Expenses */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mill Expenses</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(millExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Fuel */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fuel</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(fuelExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Loader Expenses */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+              <Truck className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Loader Expenses</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(loaderExpense)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Category Breakdown Chart & Filter Panel ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Expense Visual Breakdown Chart */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 p-5 shadow-sm">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-500" /> Expense Breakdown by Category
+          </h3>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.4} vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `${fmtN(v)}`} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', fontSize: 12 }} formatter={(val: any) => [`${fmtC(Number(val))}`, 'Amount']} />
+                <Bar dataKey="amount" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Expense List & Filter Section */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden flex flex-col">
+          {/* Controls Bar */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Filter Tabs */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
+              {[
+                { id: 'all', label: 'All Expenses' },
+                { id: 'salary', label: 'Salary' },
+                { id: 'mill', label: 'Mill Expenses' },
+                { id: 'fuel', label: 'Fuel' },
+                { id: 'loader', label: 'Loader Expenses' },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                    activeTab === t.id
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full sm:w-60">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search expense description..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Expense Data Table */}
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-700">
-                  <th className="text-left px-5 pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Line Item</th>
-                  {["Q1", "Q2", "Q3", "Q4", "Full Year"].map(q => (
-                    <th key={q} className="text-right px-3 pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">{q}</th>
-                  ))}
+                <tr className="bg-slate-50/70 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-700/60 text-slate-400 font-bold uppercase tracking-wider text-left">
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Description</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3 text-right">Amount (PKR)</th>
+                  <th className="px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {plData.map(row => {
-                  const fy = row.q1 + row.q2 + row.q3 + row.q4;
-                  const isProfit = row.type === "profit";
-                  const isCost = row.type === "cost";
-                  const isSub = row.type === "sub";
-                  return (
-                    <tr key={row.label} className={cn("transition-colors", isProfit && "bg-green-50/50 dark:bg-green-950/10", isSub && "opacity-75")}>
-                      <td className={cn("px-5 py-3", isSub && "pl-8")}>
-                        <span className={cn("font-semibold text-sm",
-                          isProfit ? "text-[#16A34A] dark:text-green-400" :
-                            isCost ? "text-red-600 dark:text-red-400" :
-                              isSub ? "text-slate-500 font-normal" : "text-slate-800 dark:text-slate-200"
-                        )}>{row.label}</span>
-                      </td>
-                      {[row.q1, row.q2, row.q3, row.q4, fy].map((v, i) => (
-                        <td key={i} className="px-3 py-3 text-right">
-                          <span className={cn("font-mono text-sm",
-                            isProfit ? "font-bold text-[#16A34A] dark:text-green-400" :
-                              isCost ? "text-red-600 dark:text-red-400" :
-                                i === 4 ? "font-bold text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"
-                          )}>{fmtC(v)}</span>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                {filteredExpenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-bold text-slate-500">No expenses recorded</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Click "Post Expense Entry" above to add your first expense</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredExpenses.map(item => {
+                    const info = getCatLabel(item.category);
+                    const IconComponent = info.icon;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${info.bg}`}>
+                            <IconComponent className="w-3.5 h-3.5" />
+                            {info.label}
+                          </span>
                         </td>
-                      ))}
-                    </tr>
-                  );
-                })}
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {item.description}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                          {item.date}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white text-sm whitespace-nowrap">
+                          {fmtC(item.amount)}
+                        </td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <button
+                            onClick={() => deleteExpense(item.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
-          )}
-        </Card>
-      )}
-
-      {tab === "Balance Sheet" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {[
-            { title: "Assets", rows: balanceSheet.assets, color: "blue", total: balanceSheet.assets.reduce((s, r) => s + r.value, 0) },
-            { title: "Liabilities", rows: balanceSheet.liabilities, color: "red", total: balanceSheet.liabilities.reduce((s, r) => s + r.value, 0) },
-            { title: "Equity", rows: balanceSheet.equity, color: "green", total: balanceSheet.equity.reduce((s, r) => s + r.value, 0) },
-          ].map(sec => (
-            <Card key={sec.title} className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">{sec.title}</h3>
-                <span className={cn("text-sm font-mono font-bold",
-                  sec.color === "blue" ? "text-[#2563EB]" : sec.color === "red" ? "text-red-600 dark:text-red-400" : "text-[#16A34A] dark:text-green-400"
-                )}>{fmtC(sec.total)}</span>
-              </div>
-              <div className="space-y-2.5">
-                {sec.rows.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">No data yet</p>
-                ) : sec.rows.map(r => (
-                  <div key={r.label} className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{r.label}</span>
-                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{fmtC(r.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ))}
         </div>
-      )}
+      </div>
 
-      {tab === "Cash Flow" && (
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — FY {currentYear} (All figures in PKR)</h3>
-          {invoices.length === 0 && purchaseOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
-              <p className="text-sm font-medium">No cash flow data yet</p>
-              <p className="text-xs mt-1">Add paid invoices and purchase orders to see cash flow</p>
+      {/* ── Post Expense Entry Modal ── */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden z-10 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-blue-600" /> Post New Expense
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          ) : (
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={cashFlowData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `${fmtN(v)}`} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`${fmtC(Number(v))}`, ""]} />
-              <Legend />
-              <Bar dataKey="operating" name="Operating" fill="#2563EB" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="investing" name="Investing" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="financing" name="Financing" fill="#EF4444" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          )}
-        </Card>
+
+            <form onSubmit={handleAddSubmit} className="space-y-4 text-xs">
+              {/* Category Choice */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">Expense Category</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'salary', label: 'Salary', icon: Briefcase },
+                    { id: 'mill', label: 'Mill Expenses', icon: Building2 },
+                    { id: 'fuel', label: 'Fuel', icon: Zap },
+                    { id: 'loader', label: 'Loader Expenses', icon: Truck },
+                  ].map(c => {
+                    const IconComp = c.icon;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setCat(c.id as any)}
+                        className={`p-3 rounded-xl border flex items-center gap-2 font-bold text-xs transition-all ${
+                          cat === c.id
+                            ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 shadow-sm'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <IconComp className="w-4 h-4" />
+                        <span>{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Amount */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (PKR)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="e.g. 25000"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Description / Notes</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Staff Monthly Salary Payment"
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Expense Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-md shadow-blue-500/20"
+                >
+                  Save Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3321,7 +3493,7 @@ function CommandPalette({ open, onClose, setScreen }: {
     { label: "Inventory", hint: "Products & warehouses", screen: "inventory" as Screen, icon: <Package className="w-4 h-4" /> },
     { label: "Sales", hint: "Invoices & POS", screen: "sales" as Screen, icon: <ShoppingCart className="w-4 h-4" /> },
     { label: "Purchasing", hint: "Purchase orders & vendors", screen: "purchase" as Screen, icon: <Truck className="w-4 h-4" /> },
-    { label: "Finance", hint: "P&L, balance sheet, cash flow", screen: "finance" as Screen, icon: <DollarSign className="w-4 h-4" /> },
+    { label: "Expence", hint: "Salary, Mill, Fuel & Loader Expenses", screen: "finance" as Screen, icon: <DollarSign className="w-4 h-4" /> },
     { label: "CRM", hint: "Customers & activities", screen: "crm" as Screen, icon: <Users className="w-4 h-4" /> },
     { label: "Reports", hint: "Build & export reports", screen: "reports" as Screen, icon: <FileBarChart className="w-4 h-4" /> },
     { label: "Settings", hint: "Company, database & security", screen: "settings" as Screen, icon: <Settings className="w-4 h-4" /> },
@@ -3447,7 +3619,7 @@ function MainAppShell() {
       case "inventory": return <InventoryScreen onOpenAddProduct={() => setAddProductModalOpen(true)} onOpenEditProduct={p => setEditingProduct(p)} />;
       case "sales": return <SalesScreen onOpenAddInvoice={() => setAddInvoiceModalOpen(true)} />;
       case "purchase": return <PurchaseScreen onOpenAddPO={() => setAddPOModalOpen(true)} onOpenAddVendor={() => setAddVendorModalOpen(true)} />;
-      case "finance": return <FinanceScreen />;
+      case "finance": return <ExpenseScreen />;
       case "crm": return <CRMScreen onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "reports": return <ReportsScreen />;
       case "settings": return <SettingsScreen onOpenSupabaseModal={() => setSupabaseModalOpen(true)} />;

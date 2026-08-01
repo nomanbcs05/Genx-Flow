@@ -80,6 +80,14 @@ export interface Activity {
   time: string;
 }
 
+export interface Expense {
+  id: string;
+  category: 'salary' | 'mill' | 'fuel' | 'loader';
+  amount: number;
+  description: string;
+  date: string;
+}
+
 export interface NotificationItem {
   id: number | string;
   type: string;
@@ -169,6 +177,10 @@ interface StockFlowContextType {
   
   processPOSSale: (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName?: string) => Promise<void>;
   
+  expenses: Expense[];
+  addExpense: (expense: Omit<Expense, 'id'>) => void;
+  deleteExpense: (id: string) => void;
+
   connectSupabaseCredentials: (url: string, key: string) => Promise<boolean>;
   disconnectSupabase: () => void;
   refreshData: () => Promise<void>;
@@ -227,6 +239,11 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     const saved = localStorage.getItem('sf_notifications');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const saved = localStorage.getItem('sf_expenses');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -300,6 +317,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);
   useEffect(() => { localStorage.setItem('sf_users', JSON.stringify(users)); }, [users]);
+  useEffect(() => { localStorage.setItem('sf_expenses', JSON.stringify(expenses)); }, [expenses]);
 
   // Auth Action Handlers
   const login = async (email: string, pass: string) => {
@@ -987,6 +1005,19 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (sb) await sb.from('customers').delete().eq('id', id).catch(() => {});
   };
 
+  // 10d. EXPENSES (Salary, Mill Expenses, Fuel, Loader Expenses)
+  const addExpense = (exp: Omit<Expense, 'id'>) => {
+    const newExp: Expense = {
+      ...exp,
+      id: `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    };
+    setExpenses(prev => [newExp, ...prev]);
+  };
+
+  const deleteExpense = (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  };
+
   // 11. PROCESS POS SALE
   const processPOSSale = async (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName = 'Walk-in Customer') => {
     if (cartItems.length === 0) return;
@@ -1205,6 +1236,9 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       updateCustomer,
       deleteCustomer,
       processPOSSale,
+      expenses,
+      addExpense,
+      deleteExpense,
       connectSupabaseCredentials,
       disconnectSupabase,
       refreshData: fetchFromSupabase,
