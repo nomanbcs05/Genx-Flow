@@ -1155,6 +1155,77 @@ export function POSReceiptModal({
   );
 }
 
+// ── Customer Search + Select Component ──
+function CustomerSearchSelect({
+  customers,
+  value,
+  onChange,
+}: {
+  customers: Customer[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const selected = customers.find(c => c.id === value);
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filtered = query.trim()
+    ? customers.filter(c =>
+        c.name.toLowerCase().includes(query.toLowerCase()) ||
+        (c.phone || '').includes(query)
+      )
+    : customers;
+
+  return (
+    <div className="relative">
+      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Search Customer & Select</label>
+      <div
+        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium cursor-pointer flex items-center justify-between gap-2"
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className={selected ? 'text-slate-900 dark:text-white text-sm' : 'text-slate-400 text-sm'}>
+          {selected ? `${selected.name}${selected.phone ? ` · ${selected.phone}` : ''}` : 'Search customer…'}
+        </span>
+        <svg className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+      </div>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type name or phone…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm text-slate-900 dark:text-white outline-none"
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <ul className="max-h-52 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <li className="px-4 py-3 text-slate-400 text-xs text-center">No customers found</li>
+            ) : (
+              filtered.map(c => (
+                <li
+                  key={c.id}
+                  className={`px-4 py-2.5 cursor-pointer text-sm flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors ${c.id === value ? 'bg-blue-50 dark:bg-blue-950/40 font-semibold text-blue-700 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}
+                  onClick={() => { onChange(c.id); setQuery(''); setOpen(false); }}
+                >
+                  <span>{c.name}{c.phone ? ` · ${c.phone}` : ''}</span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    Bal: PKR {((c.balance ?? ((c.debit || 0) - (c.credit || 0)))).toLocaleString()}
+                  </span>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 9. QUICK LEDGER TRANSACTION MODAL (Debit / Credit)
 export function QuickLedgerModal({
   open,
@@ -1170,15 +1241,11 @@ export function QuickLedgerModal({
   const { customers, updateCustomer, addActivity } = useStockFlow();
   const [customerId, setCustomerId] = useState(selectedCustomerId || '');
   const [amount, setAmount] = useState<number | string>('');
-  const [note, setNote] = useState('');
-  const [method, setMethod] = useState('Cash');
 
   useEffect(() => {
     if (open) {
       setCustomerId(selectedCustomerId || (customers[0]?.id || ''));
       setAmount('');
-      setNote('');
-      setMethod('Cash');
     }
   }, [open, selectedCustomerId, customers]);
 
@@ -1209,7 +1276,7 @@ export function QuickLedgerModal({
     const actTitle = isDebit
       ? `Debit Added (PKR ${val.toLocaleString()})`
       : `Credit Paid (PKR ${val.toLocaleString()})`;
-    const actBody = `${activeCustomer.name} · ${note || (isDebit ? 'Manual Billed Charge' : `Paid via ${method}`)}`;
+    const actBody = `${activeCustomer.name} · ${isDebit ? 'Manual Billed Charge' : 'Payment Received'}`;
 
     await addActivity(actType, actTitle, actBody);
     onClose();
@@ -1219,104 +1286,52 @@ export function QuickLedgerModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isDebit ? "Post Debit Transaction (Customer Billed)" : "Post Credit Transaction (Payment Received)"}
+      title={isDebit ? "Debit" : "Credit"}
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         {/* Banner indicator */}
         <div className={`p-4 rounded-xl border flex items-center justify-between ${
           isDebit 
             ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/60'
-            : 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60'
+            : 'bg-red-50/70 dark:bg-red-950/40 border-red-200 dark:border-red-900/60'
         }`}>
           <div>
             <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${
-              isDebit ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'
+              isDebit ? 'bg-blue-600 text-white' : 'bg-red-600 text-white'
             }`}>
               {isDebit ? 'DEBIT (+) BILLED' : 'CREDIT (-) PAID'}
             </span>
             <p className="text-sm font-bold text-slate-800 dark:text-white mt-1">
-              {isDebit ? 'Record New Billed Invoice / Charge' : 'Record Received Customer Payment'}
+              {isDebit ? 'Record New Billed Charge' : 'Record Customer Payment'}
             </p>
           </div>
           <div className="text-right">
-            <span className="text-[10px] font-bold text-slate-400 block uppercase">Transaction Impact</span>
-            <span className={`font-mono font-black text-base ${isDebit ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+            <span className="text-[10px] font-bold text-slate-400 block uppercase">Amount</span>
+            <span className={`font-mono font-black text-base ${isDebit ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}>
               {isDebit ? `+ PKR ${Number(amount || 0).toLocaleString()}` : `- PKR ${Number(amount || 0).toLocaleString()}`}
             </span>
           </div>
         </div>
 
+        {/* Search Customer & Select */}
+        <CustomerSearchSelect
+          customers={customers}
+          value={customerId}
+          onChange={setCustomerId}
+        />
+
+        {/* Amount */}
         <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Select Customer</label>
-          <select
-            value={customerId}
-            onChange={e => setCustomerId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
-          >
-            {customers.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.phone || c.city}) — Net Bal: PKR {(c.balance ?? ((c.debit || 0) - (c.credit || 0))).toLocaleString()}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {activeCustomer && (
-          <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-            <div>
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Debit</span>
-              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">PKR {(activeCustomer.debit || 0).toLocaleString()}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Credit</span>
-              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">PKR {(activeCustomer.credit || 0).toLocaleString()}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">Current Balance</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-white">PKR {(activeCustomer.balance ?? ((activeCustomer.debit || 0) - (activeCustomer.credit || 0))).toLocaleString()}</span>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (PKR)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              required
-              placeholder="e.g. 5000"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payment / Reference Method</label>
-            <select
-              value={method}
-              onChange={e => setMethod(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-            >
-              <option value="Cash">Cash</option>
-              <option value="Bank Transfer">Bank Transfer (HBL/IBAN)</option>
-              <option value="Easypaisa / JazzCash">Easypaisa / JazzCash</option>
-              <option value="Cheque">Cheque / Demand Draft</option>
-              <option value="POS Card">Credit/Debit Card</option>
-              <option value="Other">Other Reference</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Note / Description / Invoice #</label>
+          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (PKR)</label>
           <input
-            type="text"
-            placeholder={isDebit ? "e.g. Billed for 2x ProVision Monitors (Inv #1042)" : "e.g. Payment received against Inv #1042"}
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            type="number"
+            step="0.01"
+            min="0.01"
+            required
+            placeholder="e.g. 5000"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white"
           />
         </div>
 
@@ -1327,10 +1342,10 @@ export function QuickLedgerModal({
             className={`px-5 py-2 rounded-lg text-white font-bold transition-all shadow-md ${
               isDebit
                 ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
-                : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
             }`}
           >
-            {isDebit ? 'Confirm Debit Entry' : 'Confirm Credit Entry'}
+            {isDebit ? 'Confirm Debit' : 'Confirm Credit'}
           </button>
         </div>
       </form>
