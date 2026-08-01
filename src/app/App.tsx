@@ -543,31 +543,99 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
 
   // 3. Total Wheat sale (Live revenue from wheat sales connected with sales department)
   const totalWheatSale = useMemo(() => {
-    const wheatCustomers = customers.filter(c => {
-      const prod = (c.product || '').toLowerCase();
-      return prod.includes("wheat") || prod.includes("gandum");
+    let sales = 0;
+
+    // A. Invoices & POS sales with itemsList or matching customer
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("wheat") || text.includes("gandum")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        // Fallback for invoices without itemsList: check customer product or store items
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("wheat") || custProd.includes("gandum")) {
+          sales += inv.amount || 0;
+        } else {
+          const hasWheat = products.some(p => `${p.name} ${p.cat}`.toLowerCase().includes("wheat"));
+          const hasFloor = products.some(p => {
+            const t = `${p.name} ${p.cat}`.toLowerCase();
+            return t.includes("floor") || t.includes("flour") || t.includes("atta");
+          });
+          // If wheat product is in store or POS invoice, attribute invoice amount to wheat sale
+          if (hasWheat && (!hasFloor || inv.id?.startsWith("POS") || inv.id?.startsWith("INV"))) {
+            sales += inv.amount || 0;
+          }
+        }
+      }
     });
-    const wheatCustSales = wheatCustomers.reduce((sum, c) => sum + (c.debit || 0), 0);
-    const wheatInvoiceSales = invoices.filter(inv => {
-      const custName = (inv.customer || '').toLowerCase();
-      return wheatCustomers.some(c => c.name.toLowerCase() === custName);
-    }).reduce((sum, inv) => sum + (inv.amount || 0), 0);
-    return Math.max(wheatCustSales, wheatInvoiceSales);
-  }, [customers, invoices]);
+
+    // B. Customer Ledger Debits for wheat customers (not already covered by invoices)
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("wheat") || prodText.includes("gandum")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers, products]);
 
   // 4. Total Floor Sale (Live revenue from floor/flour sales connected with sales department)
   const totalFloorSale = useMemo(() => {
-    const floorCustomers = customers.filter(c => {
-      const prod = (c.product || '').toLowerCase();
-      return prod.includes("floor") || prod.includes("flour") || prod.includes("atta") || prod.includes("fine") || prod.includes("maida") || prod.includes("choker");
+    let sales = 0;
+
+    // A. Invoices & POS sales with itemsList or matching customer
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("floor") || text.includes("flour") || text.includes("atta") || text.includes("fine") || text.includes("maida") || text.includes("choker")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("floor") || custProd.includes("flour") || custProd.includes("atta") || custProd.includes("fine") || custProd.includes("maida")) {
+          sales += inv.amount || 0;
+        } else {
+          const hasFloor = products.some(p => {
+            const t = `${p.name} ${p.cat}`.toLowerCase();
+            return t.includes("floor") || t.includes("flour") || t.includes("atta");
+          });
+          const hasWheat = products.some(p => `${p.name} ${p.cat}`.toLowerCase().includes("wheat"));
+          if (hasFloor && !hasWheat) {
+            sales += inv.amount || 0;
+          }
+        }
+      }
     });
-    const floorCustSales = floorCustomers.reduce((sum, c) => sum + (c.debit || 0), 0);
-    const floorInvoiceSales = invoices.filter(inv => {
-      const custName = (inv.customer || '').toLowerCase();
-      return floorCustomers.some(c => c.name.toLowerCase() === custName);
-    }).reduce((sum, inv) => sum + (inv.amount || 0), 0);
-    return Math.max(floorCustSales, floorInvoiceSales);
-  }, [customers, invoices]);
+
+    // B. Customer Ledger Debits for floor customers
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("floor") || prodText.includes("flour") || prodText.includes("atta") || prodText.includes("fine") || prodText.includes("maida")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers, products]);
 
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');

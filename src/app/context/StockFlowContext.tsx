@@ -13,6 +13,14 @@ export interface Product {
   wh: string;
 }
 
+export interface InvoiceItem {
+  id: string;
+  name: string;
+  cat?: string;
+  price: number;
+  qty: number;
+}
+
 export interface Invoice {
   id: string;
   customer: string;
@@ -21,6 +29,7 @@ export interface Invoice {
   amount: number;
   status: 'paid' | 'pending' | 'overdue' | 'draft' | string;
   items: number;
+  itemsList?: InvoiceItem[];
 }
 
 export interface PurchaseOrder {
@@ -999,6 +1008,16 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       amount: Math.round(total * 100) / 100,
       status: 'paid',
       items: totalItemCount,
+      itemsList: cartItems.map(i => {
+        const prod = products.find(p => p.id === i.id);
+        return {
+          id: i.id,
+          name: i.name,
+          cat: prod?.cat || '',
+          price: i.price,
+          qty: i.qty,
+        };
+      }),
     };
     setInvoices(prev => [newInvoice, ...prev]);
 
