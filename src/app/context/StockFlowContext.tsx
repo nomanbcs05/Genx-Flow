@@ -242,7 +242,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('sf_categories');
-    return saved ? JSON.parse(saved) : ["Electronics", "Furniture", "Stationery", "Accessories"];
+    return saved ? JSON.parse(saved) : ["Wheat", "Floor", "Flour / Atta", "Fine / Maida", "Electronics", "Furniture", "Stationery", "Accessories"];
   });
 
   const addCategory = (newCat: string) => {

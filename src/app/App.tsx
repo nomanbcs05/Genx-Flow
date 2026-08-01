@@ -17,7 +17,7 @@ import {
   HelpCircle, BarChart2, Zap, Globe, Shield, Key, Star, RefreshCw,
   Layers, Copy, ExternalLink, Inbox, Grid, List, Database,
   BookOpen, MessageSquare, ChevronsLeft, Send, Info, Menu, Hash,
-  Percent, Briefcase, ChevronUp, Target, Award,
+  Percent, Briefcase, ChevronUp, Target, Award, Wheat,
 } from "lucide-react";
 
 import {
@@ -519,131 +519,59 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════
 
-function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void }) {
-  const { products, invoices, purchaseOrders, refreshData, isLoading, currentUser } = useStockFlow();
-  const [insightIdx, setInsightIdx] = useState(0);
+function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllInvoices?: () => void; onOpenAddCustomer?: () => void }) {
+  const { products, invoices, customers, refreshData, isLoading } = useStockFlow();
 
-  // ── Dynamic KPI calculations from live data ──
-  const totalRev = invoices.reduce((s, i) => s + (i.status === 'paid' ? i.amount : 0), 0);
-  const totalCost = purchaseOrders.reduce((s, po) => s + (po.total ?? 0), 0);
-  const grossMarginPct = totalRev > 0 ? (((totalRev - totalCost) / totalRev) * 100).toFixed(1) + '%' : '0.0%';
-
-  // Revenue & Profit per month — built from real invoices
-  const revenueChartData = useMemo(() => {
-    const byMonth: Record<string, { revenue: number; profit: number }> = {};
-    MONTH_LABELS.forEach(m => { byMonth[m] = { revenue: 0, profit: 0 }; });
-    invoices.forEach(inv => {
-      if (!inv.date) return;
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].revenue += inv.amount || 0;
-      if (inv.status === 'paid') byMonth[m].profit += inv.amount || 0;
+  // ── Live real-time calculations connected with Sales & Inventory departments ──
+  // 1. Floor Stock (Quantity of flour/floor/atta products in inventory)
+  const floorProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("floor") || text.includes("flour") || text.includes("atta") || text.includes("fine") || text.includes("maida") || text.includes("choker");
     });
-    // deduct PO costs from profit proportionally across months
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].profit -= po.total ?? 0;
+  }, [products]);
+  const floorStockQty = useMemo(() => floorProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [floorProducts]);
+
+  // 2. Wheat Stock (Quantity of wheat products in inventory)
+  const wheatProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("wheat") || text.includes("gandum");
     });
-    return MONTH_LABELS.map(m => ({ month: m, revenue: Math.max(0, byMonth[m].revenue), profit: Math.max(0, byMonth[m].profit) }));
-  }, [invoices, purchaseOrders]);
+  }, [products]);
+  const wheatStockQty = useMemo(() => wheatProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [wheatProducts]);
 
-  // Orders by channel — derived from invoice notes/channel field or fallback to 'Direct'
-  const channelChartData = useMemo(() => {
-    const map: Record<string, number> = {};
-    invoices.forEach(inv => {
-      const ch = (inv as any).channel || 'Direct';
-      map[ch] = (map[ch] || 0) + 1;
+  // 3. Total Wheat sale (Live revenue from wheat sales connected with sales department)
+  const totalWheatSale = useMemo(() => {
+    const wheatCustomers = customers.filter(c => {
+      const prod = (c.product || '').toLowerCase();
+      return prod.includes("wheat") || prod.includes("gandum");
     });
-    if (Object.keys(map).length === 0) return [{ channel: 'Direct', orders: 0 }];
-    return Object.entries(map).map(([channel, orders]) => ({ channel, orders })).sort((a, b) => b.orders - a.orders);
-  }, [invoices]);
-  const lowStockCount = products.filter(p => p.status === 'low_stock' || p.status === 'out_of_stock').length;
+    const wheatCustSales = wheatCustomers.reduce((sum, c) => sum + (c.debit || 0), 0);
+    const wheatInvoiceSales = invoices.filter(inv => {
+      const custName = (inv.customer || '').toLowerCase();
+      return wheatCustomers.some(c => c.name.toLowerCase() === custName);
+    }).reduce((sum, inv) => sum + (inv.amount || 0), 0);
+    return Math.max(wheatCustSales, wheatInvoiceSales);
+  }, [customers, invoices]);
 
-  // Dynamic AI Insights calculated directly from real live system data
-  const dynamicAIInsights = useMemo(() => {
-    const list = [];
-
-    // 1. Stock Levels Insight
-    const lowOrOut = products.filter(p => p.qty <= p.min);
-    if (lowOrOut.length > 0) {
-      const topProblemItem = lowOrOut[0];
-      list.push({
-        id: "ins-stock",
-        title: `Low Stock Alert: ${lowOrOut.length} SKUs Require Reorder`,
-        body: `${topProblemItem.name} (${topProblemItem.sku}) has only ${topProblemItem.qty} units left in ${topProblemItem.wh || 'Main Warehouse'} (min threshold: ${topProblemItem.min}). Reorder recommended.`,
-        impact: lowOrOut.some(p => p.qty === 0) ? "high" : "medium",
-      });
-    } else {
-      list.push({
-        id: "ins-stock-ok",
-        title: "Inventory Stock Levels Optimal",
-        body: `All ${products.length} active products are currently above minimum safety thresholds across warehouses.`,
-        impact: "medium",
-      });
-    }
-
-    // 2. Receivables & Cashflow Insight
-    const pendingInvoices = invoices.filter(i => i.status === 'pending' || i.status === 'overdue');
-    const pendingSum = pendingInvoices.reduce((s, i) => s + i.amount, 0);
-    if (pendingInvoices.length > 0) {
-      list.push({
-        id: "ins-ar",
-        title: `Accounts Receivable: ${fmtC(pendingSum)} Pending`,
-        body: `${pendingInvoices.length} outstanding invoices require follow-up. ${pendingInvoices.filter(i => i.status === 'overdue').length} invoices are past due.`,
-        impact: pendingInvoices.some(i => i.status === 'overdue') ? "high" : "medium",
-      });
-    } else {
-      list.push({
-        id: "ins-ar-ok",
-        title: "Receivables Fully Settled",
-        body: `All sales invoices are paid. Total collected revenue is ${fmtC(invoices.reduce((s, i) => s + i.amount, 0))}.`,
-        impact: "medium",
-      });
-    }
-
-    // 3. Highest Value Product Line Insight
-    if (products.length > 0) {
-      const sortedByVal = [...products].sort((a, b) => (b.price * b.qty) - (a.price * a.qty));
-      const topVal = sortedByVal[0];
-      const totalInventoryVal = products.reduce((s, p) => s + p.price * p.qty, 0);
-      const share = totalInventoryVal > 0 ? ((topVal.price * topVal.qty) / totalInventoryVal) * 100 : 0;
-      list.push({
-        id: "ins-value",
-        title: `Top Valuation Asset: ${topVal.name}`,
-        body: `Total stock value ${fmtC(topVal.price * topVal.qty)} (${share.toFixed(1)}% of inventory capital) stored at ${topVal.wh || 'Main Warehouse'}.`,
-        impact: share > 25 ? "high" : "medium",
-      });
-    }
-
-    return list;
-  }, [products, invoices, purchaseOrders]);
+  // 4. Total Floor Sale (Live revenue from floor/flour sales connected with sales department)
+  const totalFloorSale = useMemo(() => {
+    const floorCustomers = customers.filter(c => {
+      const prod = (c.product || '').toLowerCase();
+      return prod.includes("floor") || prod.includes("flour") || prod.includes("atta") || prod.includes("fine") || prod.includes("maida") || prod.includes("choker");
+    });
+    const floorCustSales = floorCustomers.reduce((sum, c) => sum + (c.debit || 0), 0);
+    const floorInvoiceSales = invoices.filter(inv => {
+      const custName = (inv.customer || '').toLowerCase();
+      return floorCustomers.some(c => c.name.toLowerCase() === custName);
+    }).reduce((sum, inv) => sum + (inv.amount || 0), 0);
+    return Math.max(floorCustSales, floorInvoiceSales);
+  }, [customers, invoices]);
 
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-
-    const recentInvoiceRows = invoices.slice(0, 10).map(i => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; color: #2563eb;">${i.id}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${i.customer}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${i.date}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${i.due}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace; font-weight: bold;">${fmtC(i.amount)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${i.status.toUpperCase()}</td>
-      </tr>
-    `).join('');
-
-    const aiInsightsHtml = dynamicAIInsights.map(ins => `
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 8px;">
-        <div style="font-weight: bold; font-size: 13px; color: #0f172a;">${ins.title} [${ins.impact.toUpperCase()} IMPACT]</div>
-        <div style="font-size: 12px; color: #475569; margin-top: 4px;">${ins.body}</div>
-      </div>
-    `).join('');
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -659,9 +587,6 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
             .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
             .kpi-label { font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: bold; }
             .kpi-val { font-size: 16px; font-weight: bold; color: #0f172a; margin-top: 4px; font-family: monospace; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th { background: #f1f5f9; padding: 10px 8px; text-align: left; font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; }
-            h3 { font-size: 14px; font-weight: bold; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin-top: 24px; margin-bottom: 12px; }
             @media print { body { padding: 0; } }
           </style>
         </head>
@@ -674,31 +599,11 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
           </div>
 
           <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Revenue MTD</div><div class="kpi-val">${fmtC(totalRev)}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Total Invoices</div><div class="kpi-val">${invoices.length}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Active SKUs</div><div class="kpi-val">${products.length}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Low Stock Alerts</div><div class="kpi-val">${lowStockCount}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Floor Stock</div><div class="kpi-val">${fmtN(floorStockQty)} Bags</div></div>
+            <div class="kpi-card"><div class="kpi-label">Wheat Stock</div><div class="kpi-val">${fmtN(wheatStockQty)} Bags</div></div>
+            <div class="kpi-card"><div class="kpi-label">Total Wheat Sale</div><div class="kpi-val">${fmtC(totalWheatSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Total Floor Sale</div><div class="kpi-val">${fmtC(totalFloorSale)}</div></div>
           </div>
-
-          <h3>Real-time System AI Insights</h3>
-          ${aiInsightsHtml}
-
-          <h3>Recent Invoices Overview</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice #</th>
-                <th>Customer Name</th>
-                <th>Date</th>
-                <th>Due Date</th>
-                <th style="text-align: right;">Amount (PKR)</th>
-                <th style="text-align: center;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${recentInvoiceRows}
-            </tbody>
-          </table>
 
           <script>
             window.onload = function() { window.print(); };
@@ -722,148 +627,41 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* 4 Connected Real-time KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Revenue MTD" value={fmtC(totalRev)}
-          delta={18.4} deltaLabel="vs last mo."
-          icon={<DollarSign className="w-5 h-5 text-blue-600" />} iconBg="bg-blue-50 dark:bg-blue-950/50" />
-        <StatCard label="Total Orders" value={fmtN(invoices.length)}
-          delta={0} deltaLabel="total invoices"
-          icon={<ShoppingCart className="w-5 h-5 text-emerald-600" />} iconBg="bg-emerald-50 dark:bg-emerald-950/50" />
-        <StatCard label="Gross Margin" value={grossMarginPct}
-          delta={0} deltaLabel="revenue vs cost"
-          icon={<TrendingUp className="w-5 h-5 text-purple-600" />} iconBg="bg-purple-50 dark:bg-purple-950/50" mono={false} />
-        <StatCard label="Low Stock Alerts" value={String(lowStockCount)}
-          delta={-8} deltaLabel="vs last week"
-          icon={<AlertTriangle className="w-5 h-5 text-amber-600" />} iconBg="bg-amber-50 dark:bg-amber-950/50" mono={false} />
+        <StatCard
+          label="Floor Stock"
+          value={floorProducts.length > 0 || products.length > 0 ? `${fmtN(floorStockQty)} Bags` : "0 Bags"}
+          deltaLabel="inventory stock live"
+          icon={<Package className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
+          iconBg="bg-amber-50 dark:bg-amber-950/50"
+        />
+        <StatCard
+          label="Wheat Stock"
+          value={wheatProducts.length > 0 || products.length > 0 ? `${fmtN(wheatStockQty)} Bags` : "0 Bags"}
+          deltaLabel="inventory stock live"
+          icon={<Wheat className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />}
+          iconBg="bg-yellow-50 dark:bg-yellow-950/50"
+        />
+        <StatCard
+          label="Total Wheat sale"
+          value={fmtC(totalWheatSale)}
+          deltaLabel="sales department live"
+          icon={<TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+          iconBg="bg-emerald-50 dark:bg-emerald-950/50"
+        />
+        <StatCard
+          label="Total Floor Sale"
+          value={fmtC(totalFloorSale)}
+          deltaLabel="sales department live"
+          icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+          iconBg="bg-blue-50 dark:bg-blue-950/50"
+        />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Revenue & Gross Profit</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Full year 2024 · Updated real-time</p>
-            </div>
-            <Badge variant="blue">FY 2024</Badge>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-              <defs>
-                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2563EB" stopOpacity={0.12} />
-                  <stop offset="100%" stopColor="#2563EB" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gProf" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#16A34A" stopOpacity={0.12} />
-                  <stop offset="100%" stopColor="#16A34A" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `PKR ${fmtN(v)}`} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#2563EB" strokeWidth={2}
-                fill="url(#gRev)" dot={false} activeDot={{ r: 4, fill: "#2563EB", strokeWidth: 0 }} />
-              <Area type="monotone" dataKey="profit" name="Profit" stroke="#16A34A" strokeWidth={2}
-                fill="url(#gProf)" dot={false} activeDot={{ r: 4, fill: "#16A34A", strokeWidth: 0 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Orders by Channel</h3>
-              <p className="text-xs text-slate-400 mt-0.5">December 2024</p>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={channelChartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
-              <XAxis dataKey="channel" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} />
-              <Bar dataKey="orders" fill="#2563EB" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-      </div>
-
-      {/* AI Insights + Recent Invoices */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2">
-          <Card className="p-5 h-full relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#2563EB]/[0.04] via-transparent to-[#7C3AED]/[0.04] pointer-events-none" />
-            <div className="relative">
-              <div className="flex items-center gap-2.5 mb-5">
-                <div className="w-8 h-8 rounded-xl bg-[#2563EB]/10 dark:bg-[#2563EB]/20 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4 text-[#2563EB]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">AI Insights</h3>
-                  <p className="text-[10px] text-slate-400">Real-time analysis · {dynamicAIInsights.length} live signals</p>
-                </div>
-              </div>
-              <div className="space-y-2.5">
-                {dynamicAIInsights.map((ins, i) => (
-                  <button key={ins.id} onClick={() => setInsightIdx(i)}
-                    className={cn(
-                      "w-full text-left p-3 rounded-xl border transition-all duration-150",
-                      insightIdx === i
-                        ? "border-[#2563EB]/30 bg-[#2563EB]/[0.06] dark:bg-[#2563EB]/10"
-                        : "border-slate-100 dark:border-slate-700 hover:border-slate-200 dark:hover:border-slate-600"
-                    )}>
-                    <div className="flex items-start gap-2.5">
-                      <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0", ins.impact === "high" ? "bg-red-500" : "bg-amber-500")} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{ins.title}</p>
-                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-semibold",
-                            ins.impact === "high"
-                              ? "bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400"
-                              : "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
-                          )}>{ins.impact === "high" ? "High Impact" : "Medium"}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{ins.body}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-3">
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Recent Invoices</h3>
-              <Btn variant="ghost" size="sm" onClick={onViewAllInvoices}>View all <ChevronRight className="w-3.5 h-3.5" /></Btn>
-            </div>
-            <div className="space-y-1">
-              {invoices.slice(0, 5).map(inv => (
-                <div key={inv.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center shrink-0">
-                    <Receipt className="w-4 h-4 text-slate-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{inv.id}</p>
-                    <p className="text-xs text-slate-400 truncate">{inv.customer}</p>
-                  </div>
-                  <div className="text-right shrink-0 flex items-center gap-2">
-                    <div>
-                      <p className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{fmtC(inv.amount)}</p>
-                      <p className="text-[10px] text-slate-400 text-right">{inv.date}</p>
-                    </div>
-                    {statusBadge(inv.status)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+      {/* Shortcut of Customer Relationship & Ledger */}
+      <div className="pt-2">
+        <CRMScreen onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
       </div>
     </div>
   );
@@ -3577,7 +3375,7 @@ function MainAppShell() {
 
   const renderContent = () => {
     switch (screen) {
-      case "dashboard": return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} />;
+      case "dashboard": return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "inventory": return <InventoryScreen onOpenAddProduct={() => setAddProductModalOpen(true)} onOpenEditProduct={p => setEditingProduct(p)} />;
       case "sales": return <SalesScreen onOpenAddInvoice={() => setAddInvoiceModalOpen(true)} />;
       case "purchase": return <PurchaseScreen onOpenAddPO={() => setAddPOModalOpen(true)} onOpenAddVendor={() => setAddVendorModalOpen(true)} />;
@@ -3585,7 +3383,7 @@ function MainAppShell() {
       case "crm": return <CRMScreen onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "reports": return <ReportsScreen />;
       case "settings": return <SettingsScreen onOpenSupabaseModal={() => setSupabaseModalOpen(true)} />;
-      default: return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} />;
+      default: return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
     }
   };
 
