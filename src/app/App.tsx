@@ -691,7 +691,7 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
         </div>
         <div className="flex items-center gap-2">
           <Btn variant="outline" size="sm" onClick={handleExportPDF} icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
-          <Btn size="sm" onClick={async () => { await refreshData(); }} disabled={isLoading} icon={<RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin text-white")} />}>{isLoading ? "Refreshing…" : "Refresh"}</Btn>
+          <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add New Customer</Btn>
         </div>
       </div>
 
@@ -728,9 +728,7 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
       </div>
 
       {/* Shortcut of Customer Relationship & Ledger */}
-      <div className="pt-2">
-        <CRMScreen onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
-      </div>
+      <CRMScreen hideHeader onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
     </div>
   );
 }
@@ -1649,57 +1647,8 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
                 ))}
               </div>
 
-              {/* Tax Settings (Owner's Flexible Choice) */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={taxEnabled}
-                      onChange={e => setTaxEnabled(e.target.checked)}
-                      className="rounded text-[#2563EB] focus:ring-[#2563EB]"
-                    />
-                    Enable Tax Calculation
-                  </label>
-                  {taxEnabled && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="100"
-                        value={taxRate}
-                        onChange={e => setTaxRate(Number(e.target.value))}
-                        className="w-16 px-2 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-right"
-                      />
-                      <span className="text-xs font-bold text-slate-500">%</span>
-                    </div>
-                  )}
-                </div>
-
-                {taxEnabled && (
-                  <div className="flex items-center gap-1 text-[10px]">
-                    <span className="text-slate-400">Presets:</span>
-                    {[0, 5, 8.5, 17, 18].map(r => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setTaxRate(r)}
-                        className={cn(
-                          "px-1.5 py-0.5 rounded font-mono font-semibold transition-colors",
-                          taxRate === r ? "bg-[#2563EB] text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                        )}
-                      >
-                        {r}%
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
                 <div className="flex justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmtC(subtotal)}</span></div>
-                <div className="flex justify-between text-xs"><span className="text-slate-500">Tax ({taxEnabled ? `${taxRate}%` : 'Disabled'})</span><span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmtC(tax)}</span></div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-100 dark:border-slate-700">
                   <span className="text-slate-900 dark:text-white">Total</span>
                   <span className="font-mono text-[#2563EB]">{fmtC(total)}</span>
@@ -2321,7 +2270,7 @@ function ExpenseScreen() {
 // CRM
 // ═══════════════════════════════════════════════════════════
 
-function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
+function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () => void; hideHeader?: boolean }) {
   const { customers, activities, updateCustomer, deleteCustomer } = useStockFlow();
   const [editingCust, setEditingCust] = useState<typeof customers[0] | null>(null);
   const [selectedCustId, setSelectedCustId] = useState<string>('');
@@ -2362,7 +2311,7 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
   const netBalance = customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0);
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className={cn(hideHeader ? "space-y-6" : "p-6 space-y-6 max-w-[1400px] mx-auto")}>
       {/* Quick Ledger Transaction Modal */}
       {ledgerModalType && (
         <QuickLedgerModal
@@ -2374,15 +2323,17 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
       )}
 
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Customer Relationship &amp; Ledger</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Manage your customer accounts, transactions and ledger</p>
+      {!hideHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Customer Relationship &amp; Ledger</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Manage your customer accounts, transactions and ledger</p>
+          </div>
+          <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
+            Add Customer
+          </Btn>
         </div>
-        <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
-          Add Customer
-        </Btn>
-      </div>
+      )}
 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

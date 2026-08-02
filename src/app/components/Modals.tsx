@@ -176,11 +176,27 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
   const [cat, setCat] = useState(categories[0] || 'Wheat');
   const [newCatInput, setNewCatInput] = useState('');
   const [showNewCatInput, setShowNewCatInput] = useState(false);
-  const [qty, setQty] = useState<number | string>(100);
-  const [min, setMin] = useState<number | string>(10);
-  const [purchaseRate, setPurchaseRate] = useState<number | string>(2500);
-  const [sellingRate, setSellingRate] = useState<number | string>(3000);
+  const [qty, setQty] = useState<number | string>('');
+  const [min, setMin] = useState<number | string>('');
+  const [purchaseRate, setPurchaseRate] = useState<number | string>('');
+  const [sellingRate, setSellingRate] = useState<number | string>('');
   const [wh, setWh] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setVendor('');
+      setContactVendor('');
+      setName('');
+      setCat(categories[0] || 'Wheat');
+      setNewCatInput('');
+      setShowNewCatInput(false);
+      setQty('');
+      setMin('');
+      setPurchaseRate('');
+      setSellingRate('');
+      setWh('');
+    }
+  }, [open, categories]);
 
   const handleCreateCategory = () => {
     if (newCatInput.trim()) {
@@ -230,11 +246,11 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
         {/* Row 1: Vendor & Category */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor / Supplier</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor</label>
             <input
               type="text"
               list="vendor-options"
-              placeholder="e.g. Grain Market Traders / Vendor"
+              placeholder=""
               value={vendor}
               onChange={e => setVendor(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
@@ -297,7 +313,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
             <input
               type="text"
               required
-              placeholder="e.g. Wheat Bag 50kg / Atta Flour"
+              placeholder=""
               value={name}
               onChange={e => setName(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -309,7 +325,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               type="number"
               min="0"
               required
-              placeholder="e.g. 100"
+              placeholder=""
               value={qty}
               onChange={e => setQty(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
@@ -325,33 +341,33 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               type="number"
               min="1"
               required
-              placeholder="e.g. 10"
+              placeholder=""
               value={min}
               onChange={e => setMin(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Purchase Rate (PKR)</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Purchase Rate</label>
             <input
               type="number"
               step="0.01"
               min="0"
               required
-              placeholder="e.g. 2500"
+              placeholder=""
               value={purchaseRate}
               onChange={e => setPurchaseRate(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Selling Rate (PKR)</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Selling Rate</label>
             <input
               type="number"
               step="0.01"
               min="0"
               required
-              placeholder="e.g. 3000"
+              placeholder=""
               value={sellingRate}
               onChange={e => setSellingRate(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
@@ -366,7 +382,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
             <input
               type="text"
               required
-              placeholder="e.g. Main Warehouse / Mill Store"
+              placeholder=""
               value={wh}
               onChange={e => setWh(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
@@ -376,7 +392,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Contact Vendor</label>
             <input
               type="text"
-              placeholder="e.g. +92 300 1234567 / Contact Person"
+              placeholder=""
               value={contactVendor}
               onChange={e => setContactVendor(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
