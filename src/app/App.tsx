@@ -492,15 +492,6 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
           </button>
         )}
 
-        <button
-          onClick={refreshData}
-          disabled={isLoading}
-          className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title="Refresh Data"
-        >
-          <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-[#2563EB]")} />
-        </button>
-
         <button onClick={() => setNotifOpen(true)}
           className="relative p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
           <Bell className="w-4 h-4" />
@@ -2507,10 +2498,7 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
                   <TrendingUp className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-blue-700 dark:text-blue-300">Add Debit (Billed)</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-200 dark:bg-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold">INVOICE</span>
-                  </div>
+                  <span className="text-base font-extrabold tracking-wide text-blue-700 dark:text-blue-300">DEBIT</span>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record new invoice charge on customer ledger</p>
                 </div>
               </div>
@@ -2522,21 +2510,18 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
             {/* Add Credit */}
             <button
               onClick={() => setLedgerModalType('credit')}
-              className="group relative flex items-center justify-between p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md hover:shadow-emerald-500/10 transition-all duration-200 active:scale-[0.99] text-left"
+              className="group relative flex items-center justify-between p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 hover:bg-red-100 dark:hover:bg-red-950/50 hover:border-red-300 dark:hover:border-red-700 hover:shadow-md hover:shadow-red-500/10 transition-all duration-200 active:scale-[0.99] text-left"
             >
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 group-hover:scale-110 transition-transform duration-200">
+                <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center shrink-0 shadow-md shadow-red-600/30 group-hover:scale-110 transition-transform duration-200">
                   <ArrowDownLeft className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">Add Credit (Paid)</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-200 dark:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300 font-semibold">PAYMENT</span>
-                  </div>
+                  <span className="text-base font-extrabold tracking-wide text-red-700 dark:text-red-300">CREDIT</span>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record payment received on customer ledger</p>
                 </div>
               </div>
-              <div className="w-7 h-7 rounded-lg bg-emerald-200 dark:bg-emerald-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-emerald-600 dark:text-emerald-400">
+              <div className="w-7 h-7 rounded-lg bg-red-200 dark:bg-red-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-red-600 dark:text-red-400">
                 <ChevronRight className="w-4 h-4" />
               </div>
             </button>
