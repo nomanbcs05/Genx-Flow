@@ -404,8 +404,6 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
     </Modal>
   );
 }
-  );
-}
 
 // 3. EDIT PRODUCT & ADJUST STOCK MODAL
 export function EditProductModal({ product, onClose }: { product: Product | null; onClose: () => void }) {
