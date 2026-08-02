@@ -9,6 +9,9 @@ export interface Product {
   qty: number;
   min: number;
   price: number;
+  purchaseRate?: number;
+  vendor?: string;
+  contactVendor?: string;
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'discontinued' | string;
   wh: string;
 }

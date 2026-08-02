@@ -169,15 +169,17 @@ export function SupabaseConfigModal({ open, onClose }: { open: boolean; onClose:
 
 // 2. ADD PRODUCT MODAL
 export function AddProductModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { addProduct, categories, addCategory } = useStockFlow();
-  const [sku, setSku] = useState('');
+  const { addProduct, categories, addCategory, vendors } = useStockFlow();
+  const [vendor, setVendor] = useState('');
+  const [contactVendor, setContactVendor] = useState('');
   const [name, setName] = useState('');
-  const [cat, setCat] = useState(categories[0] || 'Electronics');
+  const [cat, setCat] = useState(categories[0] || 'Wheat');
   const [newCatInput, setNewCatInput] = useState('');
   const [showNewCatInput, setShowNewCatInput] = useState(false);
-  const [qty, setQty] = useState(25);
-  const [min, setMin] = useState(10);
-  const [price, setPrice] = useState(99.99);
+  const [qty, setQty] = useState<number | string>(100);
+  const [min, setMin] = useState<number | string>(10);
+  const [purchaseRate, setPurchaseRate] = useState<number | string>(2500);
+  const [sellingRate, setSellingRate] = useState<number | string>(3000);
   const [wh, setWh] = useState('');
 
   const handleCreateCategory = () => {
@@ -192,12 +194,15 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await addProduct({
-      sku: sku.trim() || `SKU-${Date.now().toString().slice(-6)}`,
-      name,
+      sku: `SKU-${Date.now().toString().slice(-6)}`,
+      name: name.trim(),
       cat,
-      qty: Number(qty),
-      min: Number(min),
-      price: Number(price),
+      qty: Number(qty) || 0,
+      min: Number(min) || 0,
+      price: Number(sellingRate) || 0,
+      purchaseRate: Number(purchaseRate) || 0,
+      vendor: vendor.trim(),
+      contactVendor: contactVendor.trim(),
       wh: wh.trim() || 'Main Warehouse',
     });
     onClose();
@@ -206,27 +211,51 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
   return (
     <Modal open={open} onClose={onClose} title="Add New Inventory Product">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {/* Header Indicator */}
+        <div className="p-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-100 dark:border-blue-900/40 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">
+              <Package className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-extrabold text-slate-800 dark:text-white text-xs">Inventory Product Registration</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Configure stock rates, vendor contacts &amp; storage</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+            New Item
+          </span>
+        </div>
+
+        {/* Row 1: Vendor & Category */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">SKU Code</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor / Supplier</label>
             <input
               type="text"
-              placeholder="e.g. ELC-MON-4K"
-              value={sku}
-              onChange={e => setSku(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+              list="vendor-options"
+              placeholder="e.g. Grain Market Traders / Vendor"
+              value={vendor}
+              onChange={e => setVendor(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
             />
+            <datalist id="vendor-options">
+              {vendors.map(v => (
+                <option key={v.id} value={v.name} />
+              ))}
+            </datalist>
           </div>
+
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block font-bold text-slate-700 dark:text-slate-300">Category</label>
               <button
                 type="button"
                 onClick={() => setShowNewCatInput(!showNewCatInput)}
-                className="text-[11px] text-[#2563EB] hover:underline font-semibold flex items-center gap-0.5"
+                className="text-[10px] text-[#2563EB] hover:underline font-bold flex items-center gap-0.5"
               >
                 <Plus className="w-3 h-3" />
-                {showNewCatInput ? 'Select existing' : 'Create new category'}
+                {showNewCatInput ? 'Existing' : 'Create new category'}
               </button>
             </div>
 
@@ -234,15 +263,15 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
-                  placeholder="Enter new category..."
+                  placeholder="New category..."
                   value={newCatInput}
                   onChange={e => setNewCatInput(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
                 />
                 <button
                   type="button"
                   onClick={handleCreateCategory}
-                  className="px-2.5 py-2 bg-[#2563EB] text-white rounded-lg font-bold text-xs shrink-0"
+                  className="px-3 py-2 bg-[#2563EB] text-white rounded-xl font-bold text-xs shrink-0 shadow-sm"
                 >
                   Add
                 </button>
@@ -251,7 +280,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               <select
                 value={cat}
                 onChange={e => setCat(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
               >
                 {categories.map(c => (
                   <option key={c} value={c}>{c}</option>
@@ -261,73 +290,120 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
           </div>
         </div>
 
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Product Name</label>
-          <input
-            type="text"
-            required
-            placeholder="e.g. UltraWide Curved 34' Display"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
-        </div>
-
+        {/* Row 2: Product Name & Initial Qty (in SAME line, small boxes) */}
         <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Product Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Wheat Bag 50kg / Atta Flour"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+          </div>
           <div>
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Initial Qty</label>
             <input
               type="number"
               min="0"
               required
+              placeholder="e.g. 100"
               value={qty}
-              onChange={e => setQty(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+              onChange={e => setQty(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
             />
           </div>
+        </div>
+
+        {/* Row 3: Min Qty, Purchase Rate, Selling Rate (in SAME line) */}
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reorder Point (Min)</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Min Qty</label>
             <input
               type="number"
               min="1"
               required
+              placeholder="e.g. 10"
               value={min}
-              onChange={e => setMin(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+              onChange={e => setMin(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Price in pkr</label>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Purchase Rate (PKR)</label>
             <input
               type="number"
               step="0.01"
               min="0"
               required
-              value={price}
-              onChange={e => setPrice(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+              placeholder="e.g. 2500"
+              value={purchaseRate}
+              onChange={e => setPurchaseRate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Selling Rate (PKR)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              placeholder="e.g. 3000"
+              value={sellingRate}
+              onChange={e => setSellingRate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
             />
           </div>
         </div>
 
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Warehouse Location</label>
-          <input
-            type="text"
-            required
-            placeholder="Enter warehouse location (e.g. Main Warehouse, Rack A-1, Lahore Hub)"
-            value={wh}
-            onChange={e => setWh(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
+        {/* Row 4: Warehouse Location & Contact Vendor (in SAME line, small boxes each size) */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Warehouse Location</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Main Warehouse / Mill Store"
+              value={wh}
+              onChange={e => setWh(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Contact Vendor</label>
+            <input
+              type="text"
+              placeholder="e.g. +92 300 1234567 / Contact Person"
+              value={contactVendor}
+              onChange={e => setContactVendor(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
+            />
+          </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
-          <button type="submit" className="px-5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold">Save Product</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-md shadow-blue-500/20 transition-all"
+          >
+            Save Product
+          </button>
         </div>
       </form>
     </Modal>
+  );
+}
   );
 }
 
