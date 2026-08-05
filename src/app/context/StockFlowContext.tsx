@@ -175,6 +175,7 @@ interface StockFlowContextType {
   updateVendor: (id: string, updates: Partial<Vendor>) => Promise<void>;
   deleteVendor: (id: string) => Promise<void>;
   addCustomer: (customer: Omit<Customer, 'id'> & { id?: string }) => Promise<void>;
+  bulkAddCustomers: (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => Promise<void>;
   updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   
@@ -985,6 +986,36 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  // 10a2. BULK ADD CUSTOMERS
+  const bulkAddCustomers = async (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => {
+    const newCustomers: Customer[] = customersList.map((c, idx) => {
+      const newId = c.id || `CUS-${String(customers.length + idx + 1).padStart(3, '0')}`;
+      const credit = Number(c.credit || 0);
+      const debit = Number(c.debit || 0);
+      const balance = debit - credit;
+      return {
+        name: c.name || '',
+        phone: c.phone || '',
+        city: c.city || '',
+        product: c.product || '',
+        credit,
+        debit,
+        status: c.status || 'active',
+        ...c,
+        id: newId,
+        balance,
+      };
+    });
+
+    setCustomers(prev => [...newCustomers, ...prev]);
+    await addActivity('user', 'Bulk Customers Imported', `${newCustomers.length} customer records uploaded & added to CRM.`);
+
+    const sb = getSupabase();
+    if (sb) {
+      await sb.from('customers').insert(newCustomers).catch(() => {});
+    }
+  };
+
   // 10b. UPDATE CUSTOMER
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
     setCustomers(prev => prev.map(c => {
@@ -1236,6 +1267,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       updateVendor,
       deleteVendor,
       addCustomer,
+      bulkAddCustomers,
       updateCustomer,
       deleteCustomer,
       processPOSSale,

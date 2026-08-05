@@ -17,7 +17,7 @@ import {
   HelpCircle, BarChart2, Zap, Globe, Shield, Key, Star, RefreshCw,
   Layers, Copy, ExternalLink, Inbox, Grid, List, Database,
   BookOpen, MessageSquare, ChevronsLeft, Send, Info, Menu, Hash,
-  Percent, Briefcase, ChevronUp, Target, Award, Wheat,
+  Percent, Briefcase, ChevronUp, Target, Award, Wheat, Upload,
 } from "lucide-react";
 
 import {
@@ -38,6 +38,7 @@ import {
   AddPOModal,
   AddVendorModal,
   AddCustomerModal,
+  ImportCustomersModal,
   POSReceiptModal,
   QuickLedgerModal,
   DataSyncModal,
@@ -2268,6 +2269,7 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [ledgerModalType, setLedgerModalType] = useState<'debit' | 'credit' | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [tab, setTab] = useState("Customers");
   const tabs = ["Customers", "Activities"];
 
@@ -2313,6 +2315,9 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
         />
       )}
 
+      {/* Import Customers Modal */}
+      <ImportCustomersModal open={importModalOpen} onClose={() => setImportModalOpen(false)} />
+
       {/* ── Header ── */}
       {!hideHeader && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2320,9 +2325,14 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Customer Relationship &amp; Ledger</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Manage your customer accounts, transactions and ledger</p>
           </div>
-          <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
-            Add Customer
-          </Btn>
+          <div className="flex items-center gap-2">
+            <Btn variant="outline" size="sm" onClick={() => setImportModalOpen(true)} icon={<Upload className="w-3.5 h-3.5" />}>
+              Upload
+            </Btn>
+            <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
+              Add Customer
+            </Btn>
+          </div>
         </div>
       )}
 
