@@ -124,6 +124,16 @@ export const INITIAL_CUSTOMERS: Customer[] = [];
 export const INITIAL_ACTIVITIES: Activity[] = [];
 export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
+// ─── SAFE SUPABASE CALL WRAPPER ──────────────────────────────────────────────
+// PostgrestBuilder objects are Thenables but lack .catch() method in JS bundles.
+const safeSbCall = (builderPromise: any) => {
+  if (builderPromise && typeof builderPromise.then === 'function') {
+    builderPromise.then(null, (err: any) => {
+      console.warn('[StockFlow] Supabase query warning:', err);
+    });
+  }
+};
+
 // ─── LOCAL STORAGE VAULT HELPERS ─────────────────────────────────────────────
 const loadLocal = <T,>(key: string, defaultVal: T): T => {
   try {
@@ -396,7 +406,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deletedExpensesRef = useRef<Set<string>>(loadDeletedIds('sf_del_expenses'));
 
   // ─── LOCAL STORAGE PERSISTENCE ENGINE ───────────────────────────────────────
-  // Business data loads from localStorage vault first, falling back to seed arrays
   const [products, setProducts] = useState<Product[]>(() => loadLocal('sf_products', INITIAL_PRODUCTS));
   const [invoices, setInvoices] = useState<Invoice[]>(() => loadLocal('sf_invoices', INITIAL_INVOICES));
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => loadLocal('sf_pos', INITIAL_POS));
@@ -443,7 +452,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (trimmed && !categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
       setCategories(prev => [...prev, trimmed]);
       const sb = getSupabase();
-      await sb.from('categories').insert({ id: `CAT-${Date.now()}`, name: trimmed }).catch(() => {});
+      safeSbCall(sb.from('categories').insert({ id: `CAT-${Date.now()}`, name: trimmed }));
     }
   };
 
@@ -573,10 +582,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSupabaseUrl(url);
     setSupabaseKey(key);
 
-    // Initial cloud sync
     fetchFromSupabase();
 
-    // Supabase Realtime — fires instantly when any row changes in DB
     const sb = getSupabase();
     let channel: ReturnType<typeof sb.channel> | null = null;
     try {
@@ -598,7 +605,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.warn('[StockFlow] Realtime subscription failed:', err);
     }
 
-    // Polling fallback — every 10s to sync missed cloud changes without disrupting UI
     const pollInterval = setInterval(() => fetchFromSupabase(), 10000);
 
     const handleFocus = () => fetchFromSupabase();
@@ -614,13 +620,11 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, []);
 
-  // Non-destructive entity merging helper
   const mergeEntities = <T extends { id: string }>(
     currentLocal: T[],
     remoteFetched: T[],
     deletedSet: Set<string>
   ): { merged: T[]; unsynced: T[] } => {
-    // Exclude deleted IDs
     const validRemote = remoteFetched.filter(r => !deletedSet.has(r.id));
     const validLocal = currentLocal.filter(l => !deletedSet.has(l.id));
 
@@ -630,10 +634,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const unsynced: T[] = [];
     const resultMap = new Map<string, T>();
 
-    // Put remote items in result first
     validRemote.forEach(r => resultMap.set(r.id, r));
 
-    // Preserve any local item created that hasn't appeared in remote database yet
     validLocal.forEach(l => {
       if (!remoteMap.has(l.id)) {
         unsynced.push(l);
@@ -676,7 +678,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         sb.from('categories').select('*'),
       ]);
 
-      // Parse & map DB responses using field mappers
       const remoteProducts = (pData || []).map(mapProductFromDB);
       const remoteInvoices = (iData || []).map(mapInvoiceFromDB);
       const remotePOs = (poData || []).map(mapPOFromDB);
@@ -684,11 +685,10 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const remoteCustomers = (cData || []).map(mapCustomerFromDB);
       const remoteExpenses = (expData || []).map(mapExpenseFromDB);
 
-      // Perform NON-DESTRUCTIVE merging with local state
       setProducts(prev => {
         const { merged, unsynced } = mergeEntities(prev, remoteProducts, deletedProductsRef.current);
         if (unsynced.length > 0) {
-          sb.from('products').upsert(unsynced.map(mapProductToDB)).catch(() => {});
+          safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
         }
         return merged;
       });
@@ -696,7 +696,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setInvoices(prev => {
         const { merged, unsynced } = mergeEntities(prev, remoteInvoices, deletedInvoicesRef.current);
         if (unsynced.length > 0) {
-          sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)).catch(() => {});
+          safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
         }
         return merged;
       });
@@ -704,7 +704,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setPurchaseOrders(prev => {
         const { merged, unsynced } = mergeEntities(prev, remotePOs, deletedPORef.current);
         if (unsynced.length > 0) {
-          sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)).catch(() => {});
+          safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
         }
         return merged;
       });
@@ -712,7 +712,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setVendors(prev => {
         const { merged, unsynced } = mergeEntities(prev, remoteVendors, deletedVendorsRef.current);
         if (unsynced.length > 0) {
-          sb.from('vendors').upsert(unsynced.map(mapVendorToDB)).catch(() => {});
+          safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
         }
         return merged;
       });
@@ -720,7 +720,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setCustomers(prev => {
         const { merged, unsynced } = mergeEntities(prev, remoteCustomers, deletedCustomersRef.current);
         if (unsynced.length > 0) {
-          sb.from('customers').upsert(unsynced.map(mapCustomerToDB)).catch(() => {});
+          safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
         }
         return merged;
       });
@@ -728,7 +728,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setExpenses(prev => {
         const { merged, unsynced } = mergeEntities(prev, remoteExpenses, deletedExpensesRef.current);
         if (unsynced.length > 0) {
-          sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)).catch(() => {});
+          safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
         }
         return merged;
       });
@@ -736,7 +736,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (actData && actData.length > 0) setActivities(actData);
       if (notifData && notifData.length > 0) setNotifications(notifData);
 
-      // Merge DB users with hardcoded initial users
       if (uData && uData.length > 0) {
         const dbUsers = uData.map((u: any) => ({ id: String(u.id), name: u.name, email: u.email, password: u.password, role: u.role, company: u.company }));
         const merged = [...dbUsers];
@@ -746,7 +745,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setUsers(merged);
       }
 
-      // Merge DB categories
       if (catData && catData.length > 0) {
         const dbCats = catData.map((c: any) => c.name);
         setCategories(prev => Array.from(new Set([...prev, ...dbCats])));
@@ -756,7 +754,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setSyncStatus('synced');
     } catch (err: any) {
       console.warn('[StockFlow] Cloud fetch error — retaining local vault data:', err);
-      setSyncStatus('synced'); // Local data is intact
+      setSyncStatus('synced');
       setIsSupabaseConnected(true);
     } finally {
       setIsLoading(false);
@@ -808,19 +806,19 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const sb = getSupabase();
       if (sb) {
         if (Array.isArray(data.customers) && data.customers.length > 0) {
-          await sb.from('customers').upsert(data.customers.map(mapCustomerToDB)).catch(() => {});
+          safeSbCall(sb.from('customers').upsert(data.customers.map(mapCustomerToDB)));
         }
         if (Array.isArray(data.vendors) && data.vendors.length > 0) {
-          await sb.from('vendors').upsert(data.vendors.map(mapVendorToDB)).catch(() => {});
+          safeSbCall(sb.from('vendors').upsert(data.vendors.map(mapVendorToDB)));
         }
         if (Array.isArray(data.products) && data.products.length > 0) {
-          await sb.from('products').upsert(data.products.map(mapProductToDB)).catch(() => {});
+          safeSbCall(sb.from('products').upsert(data.products.map(mapProductToDB)));
         }
         if (Array.isArray(data.invoices) && data.invoices.length > 0) {
-          await sb.from('invoices').upsert(data.invoices.map(mapInvoiceToDB)).catch(() => {});
+          safeSbCall(sb.from('invoices').upsert(data.invoices.map(mapInvoiceToDB)));
         }
         if (Array.isArray(data.expenses) && data.expenses.length > 0) {
-          await sb.from('expenses').upsert(data.expenses.map(mapExpenseToDB)).catch(() => {});
+          safeSbCall(sb.from('expenses').upsert(data.expenses.map(mapExpenseToDB)));
         }
       }
 
@@ -882,7 +880,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('activities').insert({ type, title, body, time: 'Just now' }).catch(() => {});
+      safeSbCall(sb.from('activities').insert({ type, title, body, time: 'Just now' }));
     }
   };
 
@@ -899,7 +897,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('notifications').insert({ type, title, body, time: 'Just now', read: false }).catch(() => {});
+      safeSbCall(sb.from('notifications').insert({ type, title, body, time: 'Just now', read: false }));
     }
   };
 
@@ -918,8 +916,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      const { error } = await sb.from('products').upsert(mapProductToDB(newProduct));
-      if (error) console.error('Supabase add product error:', error);
+      safeSbCall(sb.from('products').upsert(mapProductToDB(newProduct)));
     }
   };
 
@@ -937,8 +934,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb && updatedProduct) {
-      const { error } = await sb.from('products').upsert(mapProductToDB(updatedProduct));
-      if (error) console.error('Supabase update product error:', error);
+      safeSbCall(sb.from('products').upsert(mapProductToDB(updatedProduct)));
     }
   };
 
@@ -950,7 +946,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('products').delete().eq('id', id).catch(() => {});
+      safeSbCall(sb.from('products').delete().eq('id', id));
     }
   };
 
@@ -971,7 +967,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('products').upsert(mapProductToDB(updated)).catch(() => {});
+      safeSbCall(sb.from('products').upsert(mapProductToDB(updated)));
     }
   };
 
@@ -985,7 +981,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     setInvoices(prev => [newInvoice, ...prev]);
 
-    // Automatically update customer ledger in CRM if customer exists
     setCustomers(prev => prev.map(c => {
       const matchName = c.name.toLowerCase() === newInvoice.customer.toLowerCase() ||
                         (c.company && c.company.toLowerCase() === newInvoice.customer.toLowerCase());
@@ -1003,7 +998,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           orders: newOrders
         };
         const sb = getSupabase();
-        if (sb) sb.from('customers').upsert(mapCustomerToDB(updatedC)).catch(() => {});
+        if (sb) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
         return updatedC;
       }
       return c;
@@ -1013,7 +1008,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)).catch(err => console.error('Invoice insert error:', err));
+      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)));
     }
   };
 
@@ -1038,7 +1033,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           balance: newBalance
         };
         const sb = getSupabase();
-        if (sb) sb.from('customers').upsert(mapCustomerToDB(updatedC)).catch(() => {});
+        if (sb) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
         return updatedC;
       }
       return c;
@@ -1049,7 +1044,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('invoices').upsert(mapInvoiceToDB(updatedInv)).catch(() => {});
+      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(updatedInv)));
     }
   };
 
@@ -1066,7 +1061,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('purchase_orders').upsert(mapPOToDB(newPO)).catch(err => console.error('PO insert error:', err));
+      safeSbCall(sb.from('purchase_orders').upsert(mapPOToDB(newPO)));
     }
   };
 
@@ -1081,7 +1076,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('purchase_orders').upsert(mapPOToDB(updatedPO)).catch(() => {});
+      safeSbCall(sb.from('purchase_orders').upsert(mapPOToDB(updatedPO)));
     }
   };
 
@@ -1098,7 +1093,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('vendors').upsert(mapVendorToDB(newVendor)).catch(err => console.error('Vendor insert error:', err));
+      safeSbCall(sb.from('vendors').upsert(mapVendorToDB(newVendor)));
     }
   };
 
@@ -1113,7 +1108,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return v;
     }));
     const sb = getSupabase();
-    if (sb && updatedV) await sb.from('vendors').upsert(mapVendorToDB(updatedV)).catch(() => {});
+    if (sb && updatedV) safeSbCall(sb.from('vendors').upsert(mapVendorToDB(updatedV)));
   };
 
   // 9c. DELETE VENDOR
@@ -1122,7 +1117,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveDeletedIds('sf_del_vendors', deletedVendorsRef.current);
     setVendors(prev => prev.filter(v => v.id !== id));
     const sb = getSupabase();
-    if (sb) await sb.from('vendors').delete().eq('id', id).catch(() => {});
+    if (sb) safeSbCall(sb.from('vendors').delete().eq('id', id));
   };
 
   // 10. ADD CUSTOMER
@@ -1149,8 +1144,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      const { error } = await sb.from('customers').upsert(mapCustomerToDB(newCustomer));
-      if (error) console.error('Supabase add customer error:', error);
+      safeSbCall(sb.from('customers').upsert(mapCustomerToDB(newCustomer)));
     }
   };
 
@@ -1180,7 +1174,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      await sb.from('customers').upsert(newCustomers.map(mapCustomerToDB)).catch(() => {});
+      safeSbCall(sb.from('customers').upsert(newCustomers.map(mapCustomerToDB)));
     }
   };
 
@@ -1199,7 +1193,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return c;
     }));
     const sb = getSupabase();
-    if (sb && updatedC) await sb.from('customers').upsert(mapCustomerToDB(updatedC)).catch(() => {});
+    if (sb && updatedC) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
   };
 
   // 10c. DELETE CUSTOMER
@@ -1208,7 +1202,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveDeletedIds('sf_del_customers', deletedCustomersRef.current);
     setCustomers(prev => prev.filter(c => c.id !== id));
     const sb = getSupabase();
-    if (sb) await sb.from('customers').delete().eq('id', id).catch(() => {});
+    if (sb) safeSbCall(sb.from('customers').delete().eq('id', id));
   };
 
   // 10d. EXPENSES (Salary, Mill Expenses, Fuel, Loader Expenses)
@@ -1221,8 +1215,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      const { error } = await sb.from('expenses').upsert(mapExpenseToDB(newExp));
-      if (error) console.error('Supabase add expense error:', error);
+      safeSbCall(sb.from('expenses').upsert(mapExpenseToDB(newExp)));
     }
   };
 
@@ -1233,8 +1226,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sb = getSupabase();
     if (sb) {
-      const { error } = await sb.from('expenses').delete().eq('id', id);
-      if (error) console.error('Supabase delete expense error:', error);
+      safeSbCall(sb.from('expenses').delete().eq('id', id));
     }
   };
 
@@ -1279,7 +1271,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const newStatus = calcStatus(newQty, p.min);
         const updatedP = { ...p, qty: newQty, status: newStatus };
         if (sb) {
-          sb.from('products').upsert(mapProductToDB(updatedP)).catch(() => {});
+          safeSbCall(sb.from('products').upsert(mapProductToDB(updatedP)));
         }
         return updatedP;
       }
@@ -1290,7 +1282,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     await addNotification('payment', 'POS Sale Processed', `$${total.toFixed(2)} charged to ${customerName}`);
 
     if (sb) {
-      await sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)).catch(() => {});
+      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)));
     }
   };
 
@@ -1298,7 +1290,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     const sb = getSupabase();
     if (sb) {
-      sb.from('notifications').update({ read: true }).neq('id', 0).catch(() => {});
+      safeSbCall(sb.from('notifications').update({ read: true }).neq('id', 0));
     }
   };
 
