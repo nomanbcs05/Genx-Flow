@@ -211,50 +211,17 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem('sf_owner_passcode', clean);
   };
 
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('sf_products');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // All business data starts empty — Supabase is the ONLY source of truth
+  const [products, setProducts] = useState<Product[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
 
-  const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const saved = localStorage.getItem('sf_invoices');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
-    const saved = localStorage.getItem('sf_pos');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [vendors, setVendors] = useState<Vendor[]>(() => {
-    const saved = localStorage.getItem('sf_vendors');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem('sf_customers');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [activities, setActivities] = useState<Activity[]>(() => {
-    const saved = localStorage.getItem('sf_activities');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    const saved = localStorage.getItem('sf_notifications');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const saved = localStorage.getItem('sf_expenses');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('sf_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
+  const [users, setUsers] = useState<UserAccount[]>(INITIAL_USERS);
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     const savedSession = localStorage.getItem('sf_auth_session');
@@ -293,39 +260,18 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('offline');
   const [lastError, setLastError] = useState<string | null>(null);
 
-  // Automatic legacy mock data purge to guarantee 100% real database start
+  // Clear any stale localStorage business data from old versions
   useEffect(() => {
-    const isCleaned = localStorage.getItem('sf_clean_v3');
-    if (!isCleaned) {
-      localStorage.setItem('sf_products', JSON.stringify([]));
-      localStorage.setItem('sf_invoices', JSON.stringify([]));
-      localStorage.setItem('sf_pos', JSON.stringify([]));
-      localStorage.setItem('sf_vendors', JSON.stringify([]));
-      localStorage.setItem('sf_customers', JSON.stringify([]));
-      localStorage.setItem('sf_activities', JSON.stringify([]));
-      localStorage.setItem('sf_notifications', JSON.stringify([]));
-      localStorage.setItem('sf_clean_v3', 'true');
-      setProducts([]);
-      setInvoices([]);
-      setPurchaseOrders([]);
-      setVendors([]);
-      setCustomers([]);
-      setActivities([]);
-      setNotifications([]);
+    const CLEAN_KEY = 'sf_clean_v4';
+    if (!localStorage.getItem(CLEAN_KEY)) {
+      ['sf_products','sf_invoices','sf_pos','sf_vendors','sf_customers',
+       'sf_activities','sf_notifications','sf_expenses','sf_users'].forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(CLEAN_KEY, 'true');
     }
   }, []);
 
-  // Sync to LocalStorage as fallback
-  useEffect(() => { localStorage.setItem('sf_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('sf_invoices', JSON.stringify(invoices)); }, [invoices]);
-  useEffect(() => { localStorage.setItem('sf_pos', JSON.stringify(purchaseOrders)); }, [purchaseOrders]);
-  useEffect(() => { localStorage.setItem('sf_vendors', JSON.stringify(vendors)); }, [vendors]);
-  useEffect(() => { localStorage.setItem('sf_customers', JSON.stringify(customers)); }, [customers]);
-  useEffect(() => { localStorage.setItem('sf_activities', JSON.stringify(activities)); }, [activities]);
-  useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
+  // Only persist categories and auth session to localStorage (UI preferences, not business data)
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);
-  useEffect(() => { localStorage.setItem('sf_users', JSON.stringify(users)); }, [users]);
-  useEffect(() => { localStorage.setItem('sf_expenses', JSON.stringify(expenses)); }, [expenses]);
 
   // Auth Action Handlers
   const login = async (email: string, pass: string) => {
@@ -440,15 +386,13 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.removeItem('sf_auth_session');
   };
 
-  // Check Supabase on Mount
+  // Load all data from Supabase on mount — always, since env credentials are always configured
   useEffect(() => {
     const creds = getSupabaseCredentials();
     setSupabaseUrl(creds.url);
     setSupabaseKey(creds.key);
-
-    if (creds.url && creds.key) {
-      fetchFromSupabase();
-    }
+    // Always fetch — credentials are baked into the build via .env
+    fetchFromSupabase();
   }, []);
 
   const fetchFromSupabase = async () => {
@@ -464,87 +408,88 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setLastError(null);
 
     try {
-      // 1. Products
+      // 1. Products — always overwrite state with DB truth
       const { data: pData, error: pErr } = await sb.from('products').select('*').order('created_at', { ascending: false });
       if (pErr) throw pErr;
-      if (pData && pData.length > 0) {
-        setProducts(pData.map((p: any) => ({
-          ...p,
-          price: Number(p.price),
-          qty: Number(p.qty),
-          min: Number(p.min),
-        })));
-      }
+      setProducts((pData || []).map((p: any) => ({
+        ...p,
+        price: Number(p.price),
+        qty: Number(p.qty),
+        min: Number(p.min),
+      })));
 
       // 2. Invoices
       const { data: iData, error: iErr } = await sb.from('invoices').select('*').order('created_at', { ascending: false });
       if (iErr) throw iErr;
-      if (iData && iData.length > 0) {
-        setInvoices(iData.map((i: any) => ({
-          ...i,
-          amount: Number(i.amount),
-          items: Number(i.items),
-        })));
-      }
+      setInvoices((iData || []).map((i: any) => ({
+        ...i,
+        amount: Number(i.amount),
+        items: Number(i.items),
+      })));
 
       // 3. Purchase Orders
       const { data: poData, error: poErr } = await sb.from('purchase_orders').select('*').order('created_at', { ascending: false });
       if (poErr) throw poErr;
-      if (poData && poData.length > 0) {
-        setPurchaseOrders(poData.map((p: any) => ({
-          ...p,
-          amount: Number(p.amount),
-          items: Number(p.items),
-        })));
-      }
+      setPurchaseOrders((poData || []).map((p: any) => ({
+        ...p,
+        amount: Number(p.amount),
+        items: Number(p.items),
+      })));
 
       // 4. Vendors
       const { data: vData, error: vErr } = await sb.from('vendors').select('*').order('created_at', { ascending: false });
       if (vErr) throw vErr;
-      if (vData && vData.length > 0) {
-        setVendors(vData.map((v: any) => ({
-          ...v,
-          spend: Number(v.spend),
-          orders: Number(v.orders),
-        })));
-      }
+      setVendors((vData || []).map((v: any) => ({
+        ...v,
+        spend: Number(v.spend),
+        orders: Number(v.orders),
+      })));
 
       // 5. Customers
       const { data: cData, error: cErr } = await sb.from('customers').select('*').order('created_at', { ascending: false });
       if (cErr) throw cErr;
-      if (cData && cData.length > 0) {
-        setCustomers(cData.map((c: any) => ({
-          ...c,
-          spend: Number(c.spend),
-          orders: Number(c.orders),
-        })));
-      }
+      setCustomers((cData || []).map((c: any) => ({
+        ...c,
+        credit: Number(c.credit || 0),
+        debit: Number(c.debit || 0),
+        balance: Number(c.balance || 0),
+        spend: Number(c.spend || 0),
+        orders: Number(c.orders || 0),
+      })));
 
       // 6. Activities
-      const { data: actData } = await sb.from('activities').select('*').order('id', { ascending: false }).limit(20);
-      if (actData && actData.length > 0) setActivities(actData);
+      const { data: actData } = await sb.from('activities').select('*').order('id', { ascending: false }).limit(50);
+      setActivities(actData || []);
 
       // 7. Notifications
-      const { data: notifData } = await sb.from('notifications').select('*').order('id', { ascending: false }).limit(20);
-      if (notifData && notifData.length > 0) setNotifications(notifData);
+      const { data: notifData } = await sb.from('notifications').select('*').order('id', { ascending: false }).limit(50);
+      setNotifications(notifData || []);
 
-      // 8. Users
+      // 8. Users — merge with INITIAL_USERS to always allow known accounts
       const { data: uData } = await sb.from('users').select('*');
       if (uData && uData.length > 0) {
-        setUsers(uData.map((u: any) => ({
+        const dbUsers = uData.map((u: any) => ({
           id: u.id,
           name: u.name,
           email: u.email,
           password: u.password,
           role: u.role,
           company: u.company,
-        })));
+        }));
+        // Merge: keep INITIAL_USERS entries that aren't already in DB
+        const merged = [...dbUsers];
+        INITIAL_USERS.forEach(iu => {
+          if (!merged.some(u => u.email.toLowerCase() === iu.email.toLowerCase())) {
+            merged.push(iu);
+          }
+        });
+        setUsers(merged);
       }
 
       // 9. Expenses
       const { data: expData, error: expErr } = await sb.from('expenses').select('*').order('created_at', { ascending: false });
-      if (!expErr && expData && expData.length > 0) {
-        setExpenses(expData.map((e: any) => ({
+      if (!expErr) {
+        setExpenses((expData || []).map((e: any) => ({
           id: e.id,
           category: e.category,
           amount: Number(e.amount),
