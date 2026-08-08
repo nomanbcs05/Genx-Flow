@@ -275,10 +275,14 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return saved ? JSON.parse(saved) : ["Wheat", "Floor", "Flour / Atta", "Fine / Maida", "Electronics", "Furniture", "Stationery", "Accessories"];
   });
 
-  const addCategory = (newCat: string) => {
+  const addCategory = async (newCat: string) => {
     const trimmed = newCat.trim();
     if (trimmed && !categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
       setCategories(prev => [...prev, trimmed]);
+      const sb = getSupabase();
+      if (sb) {
+        await sb.from('categories').insert({ id: `CAT-${Date.now()}`, name: trimmed }).catch(() => {});
+      }
     }
   };
 
@@ -535,6 +539,25 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           role: u.role,
           company: u.company,
         })));
+      }
+
+      // 9. Expenses
+      const { data: expData, error: expErr } = await sb.from('expenses').select('*').order('created_at', { ascending: false });
+      if (!expErr && expData && expData.length > 0) {
+        setExpenses(expData.map((e: any) => ({
+          id: e.id,
+          category: e.category,
+          amount: Number(e.amount),
+          description: e.description || '',
+          date: e.date || new Date().toISOString().split('T')[0],
+        })));
+      }
+
+      // 10. Categories
+      const { data: catData, error: catErr } = await sb.from('categories').select('*');
+      if (!catErr && catData && catData.length > 0) {
+        const dbCatNames = catData.map((c: any) => c.name);
+        setCategories(prev => Array.from(new Set([...prev, ...dbCatNames])));
       }
 
       setIsSupabaseConnected(true);
@@ -1040,16 +1063,28 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // 10d. EXPENSES (Salary, Mill Expenses, Fuel, Loader Expenses)
-  const addExpense = (exp: Omit<Expense, 'id'>) => {
+  const addExpense = async (exp: Omit<Expense, 'id'>) => {
     const newExp: Expense = {
       ...exp,
       id: `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     };
     setExpenses(prev => [newExp, ...prev]);
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('expenses').insert(newExp);
+      if (error) console.error('Supabase add expense error:', error);
+    }
   };
 
-  const deleteExpense = (id: string) => {
+  const deleteExpense = async (id: string) => {
     setExpenses(prev => prev.filter(e => e.id !== id));
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('expenses').delete().eq('id', id);
+      if (error) console.error('Supabase delete expense error:', error);
+    }
   };
 
   // 11. PROCESS POS SALE

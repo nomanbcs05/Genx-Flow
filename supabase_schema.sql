@@ -91,6 +91,23 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 8. EXPENSES TABLE
+CREATE TABLE IF NOT EXISTS public.expenses (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  description TEXT NOT NULL DEFAULT '',
+  date TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. CATEGORIES TABLE
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable Row Level Security (RLS) and grant permissive access for client-side API operations
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
@@ -99,6 +116,8 @@ ALTER TABLE public.vendors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public all access products" ON public.products;
 DROP POLICY IF EXISTS "Allow public all access invoices" ON public.invoices;
@@ -107,6 +126,8 @@ DROP POLICY IF EXISTS "Allow public all access vendors" ON public.vendors;
 DROP POLICY IF EXISTS "Allow public all access customers" ON public.customers;
 DROP POLICY IF EXISTS "Allow public all access activities" ON public.activities;
 DROP POLICY IF EXISTS "Allow public all access notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Allow public all access expenses" ON public.expenses;
+DROP POLICY IF EXISTS "Allow public all access categories" ON public.categories;
 
 CREATE POLICY "Allow public all access products" ON public.products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access invoices" ON public.invoices FOR ALL USING (true) WITH CHECK (true);
@@ -115,6 +136,8 @@ CREATE POLICY "Allow public all access vendors" ON public.vendors FOR ALL USING 
 CREATE POLICY "Allow public all access customers" ON public.customers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access activities" ON public.activities FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access expenses" ON public.expenses FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
 
 -- INITIAL SEED DATA
 INSERT INTO public.products (id, sku, name, cat, qty, min, price, status, wh) VALUES
