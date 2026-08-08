@@ -1,61 +1,39 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Hard-coded env credentials — always take top priority
-const ENV_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const ENV_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// ─── PRODUCTION CREDENTIALS ──────────────────────────────────────────────────
+// These are baked into every Vercel build via .env — always available on every device
+const PROD_URL = 'https://tjhsiloiiffkrzgfsskf.supabase.co';
+const PROD_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqaHNpbG9paWZma3J6Z2Zzc2tmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwODgxNTAsImV4cCI6MjEwMDY2NDE1MH0.WEt5Ky21SqWulWHM2HKbdYoWuNGcXDVfvwNI1DmqBFM';
 
 export function getSupabaseCredentials() {
-  // ENV variables always win — no localStorage override possible
-  if (ENV_URL && ENV_KEY) {
-    return { url: ENV_URL.trim(), key: ENV_KEY.trim() };
-  }
-  // Fallback: check localStorage only if env vars are missing
-  const localUrl = typeof window !== 'undefined' ? localStorage.getItem('stockflow_supabase_url') : null;
-  const localKey = typeof window !== 'undefined' ? localStorage.getItem('stockflow_supabase_key') : null;
-  return { url: localUrl || '', key: localKey || '' };
+  // 1. Use env vars if available (Vercel production build)
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (envUrl && envKey) return { url: envUrl.trim(), key: envKey.trim() };
+  // 2. Hard-coded production fallback — always works even without .env
+  return { url: PROD_URL, key: PROD_KEY };
 }
 
-export function saveSupabaseCredentials(url: string, key: string) {
-  if (typeof window !== 'undefined') {
-    if (url) localStorage.setItem('stockflow_supabase_url', url.trim());
-    else localStorage.removeItem('stockflow_supabase_url');
-    if (key) localStorage.setItem('stockflow_supabase_key', key.trim());
-    else localStorage.removeItem('stockflow_supabase_key');
-  }
+export function saveSupabaseCredentials(_url: string, _key: string) {
+  // No-op: credentials are baked into the build, not stored in localStorage
 }
 
-let supabaseInstance: SupabaseClient | null = null;
-let instanceUrl = '';
-let instanceKey = '';
+let _client: SupabaseClient | null = null;
 
-export function getSupabase(): SupabaseClient | null {
+export function getSupabase(): SupabaseClient {
+  if (_client) return _client;
   const { url, key } = getSupabaseCredentials();
-  if (!url || !key) return null;
-
-  // Re-create client if credentials changed
-  if (!supabaseInstance || instanceUrl !== url || instanceKey !== key) {
-    try {
-      supabaseInstance = createClient(url, key, {
-        auth: { persistSession: false },
-        realtime: { params: { eventsPerSecond: 10 } },
-      });
-      instanceUrl = url;
-      instanceKey = key;
-    } catch (err) {
-      console.error('Failed to initialize Supabase client:', err);
-      return null;
-    }
-  }
-  return supabaseInstance;
+  _client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { params: { eventsPerSecond: 20 } },
+  });
+  return _client;
 }
 
 export function isSupabaseConfigured(): boolean {
-  const { url, key } = getSupabaseCredentials();
-  return Boolean(url && key);
+  return true; // Always configured — credentials are hardcoded
 }
 
 export function resetSupabaseClient() {
-  supabaseInstance = null;
-  instanceUrl = '';
-  instanceKey = '';
+  _client = null;
 }

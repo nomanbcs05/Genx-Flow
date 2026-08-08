@@ -207,3 +207,20 @@ INSERT INTO public.users (id, name, email, password, role, company) VALUES
   ('usr-001', 'Bilal Shoukat', 'bilalshoukatcrm@gmail.com', 'crm1234', 'Admin', 'StockFlow ERP Platform'),
   ('usr-002', 'Sarah Kim', 'sarah@stockflow.io', 'admin123', 'Admin', 'StockFlow Technologies Inc.')
 ON CONFLICT (email) DO NOTHING;
+
+-- ═══════════════════════════════════════════════════════════
+-- ENABLE REALTIME — Required for instant cross-device sync
+-- Run this in Supabase SQL Editor to enable Realtime for all tables
+-- ═══════════════════════════════════════════════════════════
+
+-- Enable realtime for all StockFlow tables
+ALTER PUBLICATION supabase_realtime ADD TABLE public.products;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.invoices;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.purchase_orders;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.vendors;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.customers;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.activities;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.expenses;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.categories;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.users;

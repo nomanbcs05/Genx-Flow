@@ -247,9 +247,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (trimmed && !categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
       setCategories(prev => [...prev, trimmed]);
       const sb = getSupabase();
-      if (sb) {
-        await sb.from('categories').insert({ id: `CAT-${Date.now()}`, name: trimmed }).catch(() => {});
-      }
+      await sb.from('categories').insert({ id: `CAT-${Date.now()}`, name: trimmed }).catch(() => {});
     }
   };
 
@@ -386,68 +384,97 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.removeItem('sf_auth_session');
   };
 
-  // Load all data from Supabase on mount — always, since env credentials are always configured
+  // ─── Mount: immediately fetch all data + wire up realtime + polling ─────────
   useEffect(() => {
-    const creds = getSupabaseCredentials();
-    setSupabaseUrl(creds.url);
-    setSupabaseKey(creds.key);
-    // Always fetch — credentials are baked into the build via .env
+    const { url, key } = getSupabaseCredentials();
+    setSupabaseUrl(url);
+    setSupabaseKey(key);
+
+    // Initial full fetch
     fetchFromSupabase();
+
+    // Supabase Realtime — fires instantly when any row changes in DB
+    const sb = getSupabase();
+    let channel: ReturnType<typeof sb.channel> | null = null;
+    try {
+      channel = sb
+        .channel('sf-global-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'activities' }, () => fetchFromSupabase())
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[StockFlow] Realtime connected ✅');
+          }
+        });
+    } catch (err) {
+      console.warn('[StockFlow] Realtime subscription failed:', err);
+    }
+
+    // Polling fallback — every 5s to catch any missed realtime events
+    const pollInterval = setInterval(() => fetchFromSupabase(), 5000);
+
+    // Refresh when user returns to the tab
+    const handleFocus = () => fetchFromSupabase();
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') fetchFromSupabase();
+    });
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+      if (channel) sb.removeChannel(channel);
+    };
   }, []);
 
   const fetchFromSupabase = async () => {
-    const sb = getSupabase();
-    if (!sb) {
-      setIsSupabaseConnected(false);
-      setSyncStatus('offline');
-      return;
-    }
-
-    setIsLoading(true);
+    const sb = getSupabase(); // Always returns a client — credentials hardcoded
     setSyncStatus('syncing');
     setLastError(null);
 
     try {
-      // 1. Products — always overwrite state with DB truth
-      const { data: pData, error: pErr } = await sb.from('products').select('*').order('created_at', { ascending: false });
+      // Run all fetches in parallel for maximum speed
+      const [
+        { data: pData, error: pErr },
+        { data: iData, error: iErr },
+        { data: poData, error: poErr },
+        { data: vData, error: vErr },
+        { data: cData, error: cErr },
+        { data: actData },
+        { data: notifData },
+        { data: uData },
+        { data: expData },
+        { data: catData },
+      ] = await Promise.all([
+        sb.from('products').select('*').order('created_at', { ascending: false }),
+        sb.from('invoices').select('*').order('created_at', { ascending: false }),
+        sb.from('purchase_orders').select('*').order('created_at', { ascending: false }),
+        sb.from('vendors').select('*').order('created_at', { ascending: false }),
+        sb.from('customers').select('*').order('created_at', { ascending: false }),
+        sb.from('activities').select('*').order('id', { ascending: false }).limit(50),
+        sb.from('notifications').select('*').order('id', { ascending: false }).limit(50),
+        sb.from('users').select('*'),
+        sb.from('expenses').select('*').order('created_at', { ascending: false }),
+        sb.from('categories').select('*'),
+      ]);
+
+      // Throw on critical table errors
       if (pErr) throw pErr;
-      setProducts((pData || []).map((p: any) => ({
-        ...p,
-        price: Number(p.price),
-        qty: Number(p.qty),
-        min: Number(p.min),
-      })));
-
-      // 2. Invoices
-      const { data: iData, error: iErr } = await sb.from('invoices').select('*').order('created_at', { ascending: false });
       if (iErr) throw iErr;
-      setInvoices((iData || []).map((i: any) => ({
-        ...i,
-        amount: Number(i.amount),
-        items: Number(i.items),
-      })));
-
-      // 3. Purchase Orders
-      const { data: poData, error: poErr } = await sb.from('purchase_orders').select('*').order('created_at', { ascending: false });
       if (poErr) throw poErr;
-      setPurchaseOrders((poData || []).map((p: any) => ({
-        ...p,
-        amount: Number(p.amount),
-        items: Number(p.items),
-      })));
-
-      // 4. Vendors
-      const { data: vData, error: vErr } = await sb.from('vendors').select('*').order('created_at', { ascending: false });
       if (vErr) throw vErr;
-      setVendors((vData || []).map((v: any) => ({
-        ...v,
-        spend: Number(v.spend),
-        orders: Number(v.orders),
-      })));
-
-      // 5. Customers
-      const { data: cData, error: cErr } = await sb.from('customers').select('*').order('created_at', { ascending: false });
       if (cErr) throw cErr;
+
+      // Apply all state updates atomically
+      setProducts((pData || []).map((p: any) => ({ ...p, price: Number(p.price), qty: Number(p.qty), min: Number(p.min) })));
+      setInvoices((iData || []).map((i: any) => ({ ...i, amount: Number(i.amount), items: Number(i.items) })));
+      setPurchaseOrders((poData || []).map((p: any) => ({ ...p, amount: Number(p.amount), items: Number(p.items) })));
+      setVendors((vData || []).map((v: any) => ({ ...v, spend: Number(v.spend), orders: Number(v.orders) })));
       setCustomers((cData || []).map((c: any) => ({
         ...c,
         credit: Number(c.credit || 0),
@@ -456,60 +483,36 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         spend: Number(c.spend || 0),
         orders: Number(c.orders || 0),
       })));
-
-      // 6. Activities
-      const { data: actData } = await sb.from('activities').select('*').order('id', { ascending: false }).limit(50);
       setActivities(actData || []);
-
-      // 7. Notifications
-      const { data: notifData } = await sb.from('notifications').select('*').order('id', { ascending: false }).limit(50);
       setNotifications(notifData || []);
+      setExpenses((expData || []).map((e: any) => ({
+        id: e.id, category: e.category,
+        amount: Number(e.amount),
+        description: e.description || '',
+        date: e.date || new Date().toISOString().split('T')[0],
+      })));
 
-      // 8. Users — merge with INITIAL_USERS to always allow known accounts
-      const { data: uData } = await sb.from('users').select('*');
+      // Merge DB users with hardcoded initial users
       if (uData && uData.length > 0) {
-        const dbUsers = uData.map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          password: u.password,
-          role: u.role,
-          company: u.company,
-        }));
-        // Merge: keep INITIAL_USERS entries that aren't already in DB
+        const dbUsers = uData.map((u: any) => ({ id: u.id, name: u.name, email: u.email, password: u.password, role: u.role, company: u.company }));
         const merged = [...dbUsers];
         INITIAL_USERS.forEach(iu => {
-          if (!merged.some(u => u.email.toLowerCase() === iu.email.toLowerCase())) {
-            merged.push(iu);
-          }
+          if (!merged.some(u => u.email.toLowerCase() === iu.email.toLowerCase())) merged.push(iu);
         });
         setUsers(merged);
       }
 
-      // 9. Expenses
-      const { data: expData, error: expErr } = await sb.from('expenses').select('*').order('created_at', { ascending: false });
-      if (!expErr) {
-        setExpenses((expData || []).map((e: any) => ({
-          id: e.id,
-          category: e.category,
-          amount: Number(e.amount),
-          description: e.description || '',
-          date: e.date || new Date().toISOString().split('T')[0],
-        })));
-      }
-
-      // 10. Categories
-      const { data: catData, error: catErr } = await sb.from('categories').select('*');
-      if (!catErr && catData && catData.length > 0) {
-        const dbCatNames = catData.map((c: any) => c.name);
-        setCategories(prev => Array.from(new Set([...prev, ...dbCatNames])));
+      // Merge DB categories
+      if (catData && catData.length > 0) {
+        const dbCats = catData.map((c: any) => c.name);
+        setCategories(prev => Array.from(new Set([...prev, ...dbCats])));
       }
 
       setIsSupabaseConnected(true);
       setSyncStatus('synced');
     } catch (err: any) {
-      console.error('Supabase sync error:', err);
-      setLastError(err.message || 'Failed to connect to Supabase');
+      console.error('[StockFlow] Fetch error:', err);
+      setLastError(err.message || 'Database connection failed');
       setSyncStatus('error');
       setIsSupabaseConnected(false);
     } finally {
@@ -517,86 +520,16 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const connectSupabaseCredentials = async (url: string, key: string): Promise<boolean> => {
-    saveSupabaseCredentials(url, key);
-    resetSupabaseClient();
-    setSupabaseUrl(url);
-    setSupabaseKey(key);
-
-    const sb = getSupabase();
-    if (!sb) {
-      setSyncStatus('error');
-      setLastError('Invalid Supabase URL or Key');
-      return false;
-    }
-
-    try {
-      setIsLoading(true);
-      setSyncStatus('syncing');
-      // Test table query
-      const { error } = await sb.from('products').select('count', { count: 'exact', head: true });
-      if (error) throw error;
-
-      setIsSupabaseConnected(true);
-      setSyncStatus('synced');
-      await fetchFromSupabase();
-      return true;
-    } catch (err: any) {
-      console.error('Failed connection test:', err);
-      setLastError(err.message || 'Could not verify table schema. Make sure you ran supabase_schema.sql!');
-      setSyncStatus('error');
-      setIsSupabaseConnected(false);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+  const connectSupabaseCredentials = async (_url: string, _key: string): Promise<boolean> => {
+    // Credentials are hardcoded — just refresh data
+    await fetchFromSupabase();
+    return isSupabaseConnected;
   };
 
   const disconnectSupabase = () => {
-    saveSupabaseCredentials('', '');
-    resetSupabaseClient();
-    setSupabaseUrl('');
-    setSupabaseKey('');
-    setIsSupabaseConnected(false);
-    setSyncStatus('offline');
+    // No-op: app always uses Supabase
+    console.warn('[StockFlow] Cannot disconnect — Supabase is the only data store.');
   };
-
-  // Realtime Supabase channel & auto-sync polling across mobile and laptop devices
-  useEffect(() => {
-    if (!isSupabaseConnected) return;
-
-    const handleFocus = () => {
-      fetchFromSupabase().catch(() => {});
-    };
-
-    window.addEventListener('focus', handleFocus);
-    const interval = setInterval(() => {
-      fetchFromSupabase().catch(() => {});
-    }, 10000); // 10s background sync across devices
-
-    // Supabase Realtime channel subscription
-    const sb = getSupabase();
-    let channel: any = null;
-    if (sb) {
-      try {
-        channel = sb.channel('stockflow-realtime-sync')
-          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-            fetchFromSupabase().catch(() => {});
-          })
-          .subscribe();
-      } catch (err) {
-        console.warn('Realtime subscription error:', err);
-      }
-    }
-
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      clearInterval(interval);
-      if (channel && sb) {
-        sb.removeChannel(channel);
-      }
-    };
-  }, [isSupabaseConnected, supabaseUrl, supabaseKey]);
 
   // Export All ERP & Customer Ledger Data to portable JSON file string
   const exportAllDataJSON = (): string => {
