@@ -484,7 +484,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Categories: safe to keep in localStorage as UI preference (not business records)
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('sf_categories');
-    return saved ? JSON.parse(saved) : ["Wheat", "Floor", "Flour / Atta", "Fine / Maida", "Electronics", "Furniture", "Stationery", "Accessories"];
+    return saved ? JSON.parse(saved) : ["Wheat", "Floor", "Corn", "Daliya", "Flour / Atta", "Fine / Maida", "Electronics", "Furniture", "Stationery", "Accessories"];
   });
   // Only persist categories (UI preference) — all business data lives in Supabase only
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);

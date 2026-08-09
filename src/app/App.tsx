@@ -513,6 +513,7 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
 
 function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllInvoices?: () => void; onOpenAddCustomer?: () => void }) {
   const { products, invoices, customers, refreshData, isLoading } = useStockFlow();
+  const [view, setView] = useState<'dashboard' | 'crm'>('dashboard');
 
   // ── Live real-time calculations connected with Sales & Inventory departments ──
   // 1. Floor Stock (Quantity of flour/floor/atta products in inventory)
@@ -774,73 +775,103 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
           <p className="text-sm text-slate-500 mt-0.5">Live real-time business overview — StockFlow ERP.</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mr-1 hidden sm:flex">
+            <button
+              onClick={() => setView('dashboard')}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'dashboard' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+            >
+              Executive Dashboard
+            </button>
+            <button
+              onClick={() => setView('crm')}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'crm' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+            >
+              CRM
+            </button>
+          </div>
           <Btn variant="outline" size="sm" onClick={handleExportPDF} icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
           <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add New Customer</Btn>
         </div>
       </div>
-
-      {/* 8 Connected Real-time KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Floor Stock"
-          value={fmtN(floorStockQty)}
-          deltaLabel="inventory stock live"
-          icon={<Package className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
-          iconBg="bg-amber-50 dark:bg-amber-950/50"
-        />
-        <StatCard
-          label="Wheat Stock"
-          value={fmtN(wheatStockQty)}
-          deltaLabel="inventory stock live"
-          icon={<Wheat className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />}
-          iconBg="bg-yellow-50 dark:bg-yellow-950/50"
-        />
-        <StatCard
-          label="Corn Stock"
-          value={fmtN(cornStockQty)}
-          deltaLabel="inventory stock live"
-          icon={<Box className="w-5 h-5 text-orange-600 dark:text-orange-400" />}
-          iconBg="bg-orange-50 dark:bg-orange-950/50"
-        />
-        <StatCard
-          label="Daliya Stock"
-          value={fmtN(daliyaStockQty)}
-          deltaLabel="inventory stock live"
-          icon={<Layers className="w-5 h-5 text-purple-600 dark:text-purple-400" />}
-          iconBg="bg-purple-50 dark:bg-purple-950/50"
-        />
-        <StatCard
-          label="total Wheat sale"
-          value={fmtC(totalWheatSale)}
-          deltaLabel="sales department live"
-          icon={<TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
-          iconBg="bg-emerald-50 dark:bg-emerald-950/50"
-        />
-        <StatCard
-          label="Total Floor Sale"
-          value={fmtC(totalFloorSale)}
-          deltaLabel="sales department live"
-          icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
-          iconBg="bg-blue-50 dark:bg-blue-950/50"
-        />
-        <StatCard
-          label="total Corn sale"
-          value={fmtC(totalCornSale)}
-          deltaLabel="sales department live"
-          icon={<TrendingUp className="w-5 h-5 text-teal-600 dark:text-teal-400" />}
-          iconBg="bg-teal-50 dark:bg-teal-950/50"
-        />
-        <StatCard
-          label="Total Daliya Sale"
-          value={fmtC(totalDaliyaSale)}
-          deltaLabel="sales department live"
-          icon={<DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
-          iconBg="bg-indigo-50 dark:bg-indigo-950/50"
-        />
+      
+      {/* Mobile only capsule selector */}
+      <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg sm:hidden">
+        <button
+          onClick={() => setView('dashboard')}
+          className={cn("flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'dashboard' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+        >
+          Executive Dashboard
+        </button>
+        <button
+          onClick={() => setView('crm')}
+          className={cn("flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'crm' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+        >
+          CRM
+        </button>
       </div>
 
-      {/* Shortcut of Customer Relationship & Ledger */}
-      <CRMScreen hideHeader onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
+      {view === 'dashboard' ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Floor Stock"
+            value={fmtN(floorStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Package className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
+            iconBg="bg-amber-50 dark:bg-amber-950/50"
+          />
+          <StatCard
+            label="Wheat Stock"
+            value={fmtN(wheatStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Wheat className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />}
+            iconBg="bg-yellow-50 dark:bg-yellow-950/50"
+          />
+          <StatCard
+            label="Corn Stock"
+            value={fmtN(cornStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Box className="w-5 h-5 text-orange-600 dark:text-orange-400" />}
+            iconBg="bg-orange-50 dark:bg-orange-950/50"
+          />
+          <StatCard
+            label="Daliya Stock"
+            value={fmtN(daliyaStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Layers className="w-5 h-5 text-purple-600 dark:text-purple-400" />}
+            iconBg="bg-purple-50 dark:bg-purple-950/50"
+          />
+          <StatCard
+            label="total Wheat sale"
+            value={fmtC(totalWheatSale)}
+            deltaLabel="sales department live"
+            icon={<TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+            iconBg="bg-emerald-50 dark:bg-emerald-950/50"
+          />
+          <StatCard
+            label="Total Floor Sale"
+            value={fmtC(totalFloorSale)}
+            deltaLabel="sales department live"
+            icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+            iconBg="bg-blue-50 dark:bg-blue-950/50"
+          />
+          <StatCard
+            label="total Corn sale"
+            value={fmtC(totalCornSale)}
+            deltaLabel="sales department live"
+            icon={<TrendingUp className="w-5 h-5 text-teal-600 dark:text-teal-400" />}
+            iconBg="bg-teal-50 dark:bg-teal-950/50"
+          />
+          <StatCard
+            label="Total Daliya Sale"
+            value={fmtC(totalDaliyaSale)}
+            deltaLabel="sales department live"
+            icon={<DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
+            iconBg="bg-indigo-50 dark:bg-indigo-950/50"
+          />
+        </div>
+      ) : (
+        <CRMScreen hideHeader onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
+      )}
     </div>
   );
 }
@@ -1726,7 +1757,8 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
                     className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
                     <option value="Cash">Cash</option>
-                    <option value="Credit / Debit Card">Credit / Debit Card</option>
+                    <option value="Credit Card">Credit Card</option>
+                    <option value="Debit Card">Debit Card</option>
                     <option value="Bank Transfer">Bank Transfer</option>
                     <option value="POS Terminal">POS Terminal</option>
                   </select>
