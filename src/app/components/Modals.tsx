@@ -433,17 +433,39 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
 
 // 3. EDIT PRODUCT & ADJUST STOCK MODAL
 export function EditProductModal({ product, onClose }: { product: Product | null; onClose: () => void }) {
-  const { updateProduct, adjustStock, deleteProduct, categories, addCategory } = useStockFlow();
-  if (!product) return null;
+  const { updateProduct, adjustStock, deleteProduct, categories, addCategory, vendors } = useStockFlow();
 
-  const [qty, setQty] = useState(product.qty);
-  const [price, setPrice] = useState(product.price);
-  const [min, setMin] = useState(product.min);
-  const [name, setName] = useState(product.name);
-  const [cat, setCat] = useState(product.cat);
-  const [wh, setWh] = useState(product.wh || 'Main Warehouse');
+  const [vendor, setVendor] = useState('');
+  const [contactVendor, setContactVendor] = useState('');
+  const [name, setName] = useState('');
+  const [cat, setCat] = useState(categories[0] || 'Wheat');
   const [newCatInput, setNewCatInput] = useState('');
   const [showNewCatInput, setShowNewCatInput] = useState(false);
+  const [qty, setQty] = useState<number | string>('');
+  const [min, setMin] = useState<number | string>(10);
+  const [purchaseRate, setPurchaseRate] = useState<number | string>('');
+  const [sellingRate, setSellingRate] = useState<number | string>('');
+  const [wh, setWh] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (product) {
+      setVendor(product.vendor || '');
+      setContactVendor(product.contactVendor || '');
+      setName(product.name || '');
+      setCat(product.cat || categories[0] || 'Wheat');
+      setNewCatInput('');
+      setShowNewCatInput(false);
+      setQty(product.qty ?? 0);
+      setMin(product.min ?? 10);
+      setPurchaseRate(product.purchaseRate ?? 0.00);
+      setSellingRate(product.price ?? 0.00);
+      setWh(product.wh || 'Main Warehouse');
+      setErrorMsg('');
+    }
+  }, [product, categories]);
+
+  if (!product) return null;
 
   const handleCreateCategory = () => {
     if (newCatInput.trim()) {
@@ -456,14 +478,23 @@ export function EditProductModal({ product, onClose }: { product: Product | null
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateProduct(product.id, {
-      name,
+    setErrorMsg('');
+    const res = await updateProduct(product.id, {
+      name: name.trim(),
       cat,
-      wh,
-      price: Number(price),
-      min: Number(min),
+      wh: wh.trim() || 'Main Warehouse',
+      vendor: vendor.trim(),
+      contactVendor: contactVendor.trim(),
+      purchaseRate: Number(purchaseRate) || 0,
+      price: Number(sellingRate) || 0,
+      min: Number(min) || 0,
+      qty: Number(qty) || 0,
     });
-    if (qty !== product.qty) {
+    if (!res.success) {
+      setErrorMsg(res.error || 'Failed to update product in Supabase');
+      return;
+    }
+    if (Number(qty) !== product.qty) {
       await adjustStock(product.id, Number(qty));
     }
     onClose();
@@ -477,37 +508,63 @@ export function EditProductModal({ product, onClose }: { product: Product | null
   };
 
   return (
-    <Modal open={Boolean(product)} onClose={onClose} title={`Edit ${product.name}`}>
+    <Modal open={Boolean(product)} onClose={onClose} title={`Edit Inventory Product`}>
       <form onSubmit={handleSave} className="space-y-4 text-xs">
-        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex justify-between items-center">
-          <div>
-            <p className="text-[10px] text-slate-400 font-mono">SKU: {product.sku}</p>
-            <p className="font-bold text-slate-800 dark:text-slate-200">{product.name}</p>
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300">
+            ⚠️ {errorMsg}
+          </div>
+        )}
+        {/* Header Indicator */}
+        <div className="p-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-100 dark:border-blue-900/40 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">
+              <Package className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-extrabold text-slate-800 dark:text-white text-xs">Inventory Product Registration &amp; Edit</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Configure stock rates, vendor contacts &amp; storage</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              {product.sku}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+              Edit Item
+            </span>
           </div>
         </div>
 
-        <div>
-          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Product Name</label>
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
-        </div>
-
+        {/* Row 1: Vendor & Category */}
         <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Vendor</label>
+            <input
+              type="text"
+              list="edit-vendor-options"
+              placeholder="Vendor name..."
+              value={vendor}
+              onChange={e => setVendor(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
+            />
+            <datalist id="edit-vendor-options">
+              {vendors.map(v => (
+                <option key={v.id} value={v.name} />
+              ))}
+            </datalist>
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block font-bold text-slate-700 dark:text-slate-300">Category</label>
               <button
                 type="button"
                 onClick={() => setShowNewCatInput(!showNewCatInput)}
-                className="text-[11px] text-[#2563EB] hover:underline font-semibold flex items-center gap-0.5"
+                className="text-[10px] text-[#2563EB] hover:underline font-bold flex items-center gap-0.5"
               >
                 <Plus className="w-3 h-3" />
-                {showNewCatInput ? 'Select' : 'New category'}
+                {showNewCatInput ? 'Existing' : 'Create new category'}
               </button>
             </div>
 
@@ -518,12 +575,12 @@ export function EditProductModal({ product, onClose }: { product: Product | null
                   placeholder="New category..."
                   value={newCatInput}
                   onChange={e => setNewCatInput(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
                 />
                 <button
                   type="button"
                   onClick={handleCreateCategory}
-                  className="px-2.5 py-2 bg-[#2563EB] text-white rounded-lg font-bold text-xs shrink-0"
+                  className="px-3 py-2 bg-[#2563EB] text-white rounded-xl font-bold text-xs shrink-0 shadow-sm"
                 >
                   Add
                 </button>
@@ -532,7 +589,7 @@ export function EditProductModal({ product, onClose }: { product: Product | null
               <select
                 value={cat}
                 onChange={e => setCat(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
               >
                 {categories.map(c => (
                   <option key={c} value={c}>{c}</option>
@@ -540,60 +597,121 @@ export function EditProductModal({ product, onClose }: { product: Product | null
               </select>
             )}
           </div>
+        </div>
 
+        {/* Row 2: Product Name & Stock Qty (in SAME line, small boxes) */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Product Name</label>
+            <input
+              type="text"
+              required
+              placeholder="Product Name..."
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Initial / Current Qty</label>
+            <input
+              type="number"
+              min="0"
+              required
+              placeholder="0"
+              value={qty}
+              onChange={e => setQty(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Row 3: Min Qty, Purchase Rate, Selling Rate (in SAME line) */}
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Min Qty</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="10"
+              value={min}
+              onChange={e => setMin(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Purchase Rate</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={purchaseRate}
+              onChange={e => setPurchaseRate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Selling Rate</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={sellingRate}
+              onChange={e => setSellingRate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Row 4: Warehouse Location & Contact Vendor (in SAME line, small boxes each size) */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Warehouse Location</label>
             <input
               type="text"
-              required
-              placeholder="Enter location..."
+              placeholder="Main Warehouse"
               value={wh}
               onChange={e => setWh(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Contact Vendor</label>
+            <input
+              type="text"
+              placeholder="Vendor contact info / phone..."
+              value={contactVendor}
+              onChange={e => setContactVendor(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Current Stock Qty</label>
-            <input
-              type="number"
-              value={qty}
-              min="0"
-              onChange={e => setQty(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reorder Point (Min)</label>
-            <input
-              type="number"
-              value={min}
-              min="1"
-              onChange={e => setMin(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Price in pkr</label>
-            <input
-              type="number"
-              step="0.01"
-              value={price}
-              onChange={e => setPrice(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
-          <button type="button" onClick={handleDelete} className="px-3 py-2 rounded-lg text-red-600 dark:text-red-400 font-semibold hover:bg-red-50 dark:hover:bg-red-950/40">
+        {/* Action Buttons */}
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="px-3 py-2 rounded-xl text-red-600 dark:text-red-400 font-semibold hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+          >
             Delete Item
           </button>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
-            <button type="submit" className="px-5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold">Update Product</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-md shadow-blue-500/20 transition-all"
+            >
+              Update Product
+            </button>
           </div>
         </div>
       </form>

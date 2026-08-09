@@ -533,7 +533,25 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
   }, [products]);
   const wheatStockQty = useMemo(() => wheatProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [wheatProducts]);
 
-  // 3. Total Wheat sale (Live revenue from wheat sales connected with sales department)
+  // 3. Corn Stock (Quantity of corn/makai products in inventory)
+  const cornProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("corn") || text.includes("makai") || text.includes("maize");
+    });
+  }, [products]);
+  const cornStockQty = useMemo(() => cornProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [cornProducts]);
+
+  // 4. Daliya Stock (Quantity of daliya/dalia products in inventory)
+  const daliyaProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("daliya") || text.includes("dalia") || text.includes("porridge") || text.includes("broken wheat");
+    });
+  }, [products]);
+  const daliyaStockQty = useMemo(() => daliyaProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [daliyaProducts]);
+
+  // 5. Total Wheat sale (Live revenue from wheat sales connected with sales department)
   const totalWheatSale = useMemo(() => {
     let sales = 0;
 
@@ -582,7 +600,7 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
     return sales;
   }, [invoices, customers, products]);
 
-  // 4. Total Floor Sale (Live revenue from floor/flour sales connected with sales department)
+  // 6. Total Floor Sale (Live revenue from floor/flour sales connected with sales department)
   const totalFloorSale = useMemo(() => {
     let sales = 0;
 
@@ -629,6 +647,76 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
     return sales;
   }, [invoices, customers, products]);
 
+  // 7. Total Corn sale (Live revenue from corn/makai sales connected with sales department)
+  const totalCornSale = useMemo(() => {
+    let sales = 0;
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("corn") || text.includes("makai") || text.includes("maize")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("corn") || custProd.includes("makai") || custProd.includes("maize")) {
+          sales += inv.amount || 0;
+        }
+      }
+    });
+
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("corn") || prodText.includes("makai") || prodText.includes("maize")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers]);
+
+  // 8. Total Daliya Sale (Live revenue from daliya sales connected with sales department)
+  const totalDaliyaSale = useMemo(() => {
+    let sales = 0;
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("daliya") || text.includes("dalia") || text.includes("porridge") || text.includes("broken wheat")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("daliya") || custProd.includes("dalia") || custProd.includes("porridge")) {
+          sales += inv.amount || 0;
+        }
+      }
+    });
+
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("daliya") || prodText.includes("dalia") || prodText.includes("porridge")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers]);
+
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -659,10 +747,14 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
           </div>
 
           <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Floor Stock</div><div class="kpi-val">${fmtN(floorStockQty)} Bags</div></div>
-            <div class="kpi-card"><div class="kpi-label">Wheat Stock</div><div class="kpi-val">${fmtN(wheatStockQty)} Bags</div></div>
-            <div class="kpi-card"><div class="kpi-label">Total Wheat Sale</div><div class="kpi-val">${fmtC(totalWheatSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Floor Stock</div><div class="kpi-val">${fmtN(floorStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Wheat Stock</div><div class="kpi-val">${fmtN(wheatStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Corn Stock</div><div class="kpi-val">${fmtN(cornStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Daliya Stock</div><div class="kpi-val">${fmtN(daliyaStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">total Wheat sale</div><div class="kpi-val">${fmtC(totalWheatSale)}</div></div>
             <div class="kpi-card"><div class="kpi-label">Total Floor Sale</div><div class="kpi-val">${fmtC(totalFloorSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">total Corn sale</div><div class="kpi-val">${fmtC(totalCornSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Total Daliya Sale</div><div class="kpi-val">${fmtC(totalDaliyaSale)}</div></div>
           </div>
 
           <script>
@@ -687,24 +779,38 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
         </div>
       </div>
 
-      {/* 4 Connected Real-time KPIs */}
+      {/* 8 Connected Real-time KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Floor Stock"
-          value={floorProducts.length > 0 || products.length > 0 ? `${fmtN(floorStockQty)} Bags` : "0 Bags"}
+          value={fmtN(floorStockQty)}
           deltaLabel="inventory stock live"
           icon={<Package className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
           iconBg="bg-amber-50 dark:bg-amber-950/50"
         />
         <StatCard
           label="Wheat Stock"
-          value={wheatProducts.length > 0 || products.length > 0 ? `${fmtN(wheatStockQty)} Bags` : "0 Bags"}
+          value={fmtN(wheatStockQty)}
           deltaLabel="inventory stock live"
           icon={<Wheat className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />}
           iconBg="bg-yellow-50 dark:bg-yellow-950/50"
         />
         <StatCard
-          label="Total Wheat sale"
+          label="Corn Stock"
+          value={fmtN(cornStockQty)}
+          deltaLabel="inventory stock live"
+          icon={<Box className="w-5 h-5 text-orange-600 dark:text-orange-400" />}
+          iconBg="bg-orange-50 dark:bg-orange-950/50"
+        />
+        <StatCard
+          label="Daliya Stock"
+          value={fmtN(daliyaStockQty)}
+          deltaLabel="inventory stock live"
+          icon={<Layers className="w-5 h-5 text-purple-600 dark:text-purple-400" />}
+          iconBg="bg-purple-50 dark:bg-purple-950/50"
+        />
+        <StatCard
+          label="total Wheat sale"
           value={fmtC(totalWheatSale)}
           deltaLabel="sales department live"
           icon={<TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
@@ -716,6 +822,20 @@ function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllIn
           deltaLabel="sales department live"
           icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
           iconBg="bg-blue-50 dark:bg-blue-950/50"
+        />
+        <StatCard
+          label="total Corn sale"
+          value={fmtC(totalCornSale)}
+          deltaLabel="sales department live"
+          icon={<TrendingUp className="w-5 h-5 text-teal-600 dark:text-teal-400" />}
+          iconBg="bg-teal-50 dark:bg-teal-950/50"
+        />
+        <StatCard
+          label="Total Daliya Sale"
+          value={fmtC(totalDaliyaSale)}
+          deltaLabel="sales department live"
+          icon={<DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
+          iconBg="bg-indigo-50 dark:bg-indigo-950/50"
         />
       </div>
 
