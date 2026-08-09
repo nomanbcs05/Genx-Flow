@@ -412,12 +412,14 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deletedCustomersRef = useRef<Set<string>>(loadDeletedIds('sf_del_customers'));
   const deletedExpensesRef = useRef<Set<string>>(loadDeletedIds('sf_del_expenses'));
 
-  // ─── LOCAL STORAGE PERSISTENCE ENGINE ───────────────────────────────────────
-  const [products, setProducts] = useState<Product[]>(() => loadLocal('sf_products', INITIAL_PRODUCTS));
-  const [invoices, setInvoices] = useState<Invoice[]>(() => loadLocal('sf_invoices', INITIAL_INVOICES));
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => loadLocal('sf_pos', INITIAL_POS));
-  const [vendors, setVendors] = useState<Vendor[]>(() => loadLocal('sf_vendors', INITIAL_VENDORS));
-  const [customers, setCustomers] = useState<Customer[]>(() => loadLocal('sf_customers', INITIAL_CUSTOMERS));
+  // ─── STATE: Start empty, Supabase fills on mount ──────────────────────────
+  // All primary data loads authoritatively from Supabase on first fetch.
+  // LocalStorage is kept only as an offline fallback cache, NOT as a seed.
+  const [products, setProducts] = useState<Product[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [activities, setActivities] = useState<Activity[]>(() => loadLocal('sf_activities', INITIAL_ACTIVITIES));
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => loadLocal('sf_notifications', INITIAL_NOTIFICATIONS));
   const [expenses, setExpenses] = useState<Expense[]>(() => loadLocal('sf_expenses', []));
@@ -603,6 +605,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'activities' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchFromSupabase())
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             console.log('[StockFlow] Realtime connected ✅');
@@ -612,7 +615,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.warn('[StockFlow] Realtime subscription failed:', err);
     }
 
-    const pollInterval = setInterval(() => fetchFromSupabase(), 10000);
+    const pollInterval = setInterval(() => fetchFromSupabase(), 5000);
 
     const handleFocus = () => fetchFromSupabase();
     window.addEventListener('focus', handleFocus);
@@ -691,63 +694,67 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         sb.from('categories').select('*'),
       ]);
 
-      const remoteProducts = (pData || []).map(mapProductFromDB);
-      const remoteInvoices = (iData || []).map(mapInvoiceFromDB);
-      const remotePOs = (poData || []).map(mapPOFromDB);
-      const remoteVendors = (vData || []).map(mapVendorFromDB);
-      const remoteCustomers = (cData || []).map(mapCustomerFromDB);
-      const remoteExpenses = (expData || []).map(mapExpenseFromDB);
+      // ── Supabase is the single source of truth ────────────────────────────
+      // Strategy: use remote data as authoritative. Any locally-created items
+      // that haven't synced yet (not in remote, not deleted) are pushed first,
+      // then state is set purely from what Supabase returns.
 
+      const remoteProductIds = new Set((pData || []).map((r: any) => String(r.id)));
+      const remoteInvoiceIds = new Set((iData || []).map((r: any) => String(r.id)));
+      const remotePOIds = new Set((poData || []).map((r: any) => String(r.id)));
+      const remoteVendorIds = new Set((vData || []).map((r: any) => String(r.id)));
+      const remoteCustomerIds = new Set((cData || []).map((r: any) => String(r.id)));
+      const remoteExpenseIds = new Set((expData || []).map((r: any) => String(r.id)));
+
+      // Push any locally-optimistic items (created on this device, not yet in DB)
       setProducts(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remoteProducts, deletedProductsRef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
-        }
-        return merged;
+        const unsynced = prev.filter(l => !deletedProductsRef.current.has(l.id) && !remoteProductIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
+        return prev; // keep local state unchanged; will be overwritten below
       });
-
       setInvoices(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remoteInvoices, deletedInvoicesRef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
-        }
-        return merged;
+        const unsynced = prev.filter(l => !deletedInvoicesRef.current.has(l.id) && !remoteInvoiceIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
+        return prev;
       });
-
       setPurchaseOrders(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remotePOs, deletedPORef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
-        }
-        return merged;
+        const unsynced = prev.filter(l => !deletedPORef.current.has(l.id) && !remotePOIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
+        return prev;
       });
-
       setVendors(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remoteVendors, deletedVendorsRef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
-        }
-        return merged;
+        const unsynced = prev.filter(l => !deletedVendorsRef.current.has(l.id) && !remoteVendorIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
+        return prev;
       });
-
       setCustomers(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remoteCustomers, deletedCustomersRef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
-        }
-        return merged;
+        const unsynced = prev.filter(l => !deletedCustomersRef.current.has(l.id) && !remoteCustomerIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
+        return prev;
+      });
+      setExpenses(prev => {
+        const unsynced = prev.filter(l => !deletedExpensesRef.current.has(l.id) && !remoteExpenseIds.has(l.id));
+        if (unsynced.length > 0) safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
+        return prev;
       });
 
-      setExpenses(prev => {
-        const { merged, unsynced } = mergeEntities(prev, remoteExpenses, deletedExpensesRef.current);
-        if (unsynced.length > 0) {
-          safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
-        }
-        return merged;
-      });
+      // ── Now set state authoritatively from Supabase ───────────────────────
+      const remoteProducts = (pData || []).map(mapProductFromDB).filter((r: Product) => !deletedProductsRef.current.has(r.id));
+      const remoteInvoices = (iData || []).map(mapInvoiceFromDB).filter((r: Invoice) => !deletedInvoicesRef.current.has(r.id));
+      const remotePOs = (poData || []).map(mapPOFromDB).filter((r: PurchaseOrder) => !deletedPORef.current.has(r.id));
+      const remoteVendors = (vData || []).map(mapVendorFromDB).filter((r: Vendor) => !deletedVendorsRef.current.has(r.id));
+      const remoteCustomers = (cData || []).map(mapCustomerFromDB).filter((r: Customer) => !deletedCustomersRef.current.has(r.id));
+      const remoteExpenses = (expData || []).map(mapExpenseFromDB).filter((r: Expense) => !deletedExpensesRef.current.has(r.id));
+
+      if (pData) setProducts(remoteProducts);
+      if (iData) setInvoices(remoteInvoices);
+      if (poData) setPurchaseOrders(remotePOs);
+      if (vData) setVendors(remoteVendors);
+      if (cData) setCustomers(remoteCustomers);
+      if (expData) setExpenses(remoteExpenses);
 
       if (actData && actData.length > 0) setActivities(actData);
-      if (notifData && notifData.length > 0) setNotifications(notifData);
+      if (notifData) setNotifications(notifData);
 
       if (uData && uData.length > 0) {
         const dbUsers = uData.map((u: any) => ({ id: String(u.id), name: u.name, email: u.email, password: u.password, role: u.role, company: u.company }));
