@@ -75,6 +75,18 @@ export interface Customer {
   tier?: 'enterprise' | 'professional' | 'growth' | string;
 }
 
+export interface LedgerTransaction {
+  id: string;
+  customerId: string;
+  customerName: string;
+  type: 'debit' | 'credit';
+  amount: number;
+  description: string;
+  date: string;
+  referenceId?: string;
+  createdAt?: string;
+}
+
 export interface Activity {
   id: number | string;
   type: string;
@@ -318,12 +330,36 @@ const mapExpenseToDB = (e: Expense) => ({
   date: e.date || new Date().toISOString().split('T')[0],
 });
 
+const mapLedgerFromDB = (l: any): LedgerTransaction => ({
+  id: String(l.id),
+  customerId: String(l.customer_id || l.customerId || ''),
+  customerName: l.customer_name || l.customerName || '',
+  type: l.type === 'credit' ? 'credit' : 'debit',
+  amount: Number(l.amount || 0),
+  description: l.description || '',
+  date: l.date || new Date().toISOString().split('T')[0],
+  referenceId: l.reference_id || l.referenceId || '',
+  createdAt: l.created_at || l.createdAt || new Date().toISOString(),
+});
+
+const mapLedgerToDB = (l: LedgerTransaction) => ({
+  id: l.id,
+  customer_id: l.customerId,
+  customer_name: l.customerName || '',
+  type: l.type,
+  amount: Number(l.amount || 0),
+  description: l.description || '',
+  date: l.date || new Date().toISOString().split('T')[0],
+  reference_id: l.referenceId || '',
+});
+
 interface StockFlowContextType {
   products: Product[];
   invoices: Invoice[];
   purchaseOrders: PurchaseOrder[];
   vendors: Vendor[];
   customers: Customer[];
+  ledger: LedgerTransaction[];
   activities: Activity[];
   notifications: NotificationItem[];
   users: UserAccount[];
@@ -353,13 +389,13 @@ interface StockFlowContextType {
   logout: () => void;
 
   // Actions
-  addProduct: (product: Omit<Product, 'id' | 'status'> & { id?: string }) => Promise<void>;
-  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
-  deleteProduct: (id: string) => Promise<void>;
-  adjustStock: (id: string, newQty: number) => Promise<void>;
+  addProduct: (product: Omit<Product, 'id' | 'status'> & { id?: string }) => Promise<{ success: boolean; error?: string }>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<{ success: boolean; error?: string }>;
+  deleteProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
+  adjustStock: (id: string, newQty: number) => Promise<{ success: boolean; error?: string }>;
   
-  addInvoice: (invoice: Omit<Invoice, 'id'> & { id?: string }) => Promise<void>;
-  markInvoicePaid: (id: string) => Promise<void>;
+  addInvoice: (invoice: Omit<Invoice, 'id'> & { id?: string }) => Promise<{ success: boolean; error?: string }>;
+  markInvoicePaid: (id: string) => Promise<{ success: boolean; error?: string }>;
   
   addPurchaseOrder: (po: Omit<PurchaseOrder, 'id'> & { id?: string }) => Promise<void>;
   markPOReceived: (id: string) => Promise<void>;
@@ -367,12 +403,14 @@ interface StockFlowContextType {
   addVendor: (vendor: Omit<Vendor, 'id'> & { id?: string }) => Promise<void>;
   updateVendor: (id: string, updates: Partial<Vendor>) => Promise<void>;
   deleteVendor: (id: string) => Promise<void>;
-  addCustomer: (customer: Omit<Customer, 'id'> & { id?: string }) => Promise<void>;
-  bulkAddCustomers: (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => Promise<void>;
-  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
-  deleteCustomer: (id: string) => Promise<void>;
+  addCustomer: (customer: Omit<Customer, 'id'> & { id?: string }) => Promise<{ success: boolean; error?: string }>;
+  bulkAddCustomers: (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => Promise<{ success: boolean; error?: string }>;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<{ success: boolean; error?: string }>;
+  deleteCustomer: (id: string) => Promise<{ success: boolean; error?: string }>;
+  addLedgerTransaction: (trans: Omit<LedgerTransaction, 'id'> & { id?: string }) => Promise<{ success: boolean; error?: string }>;
+  deleteLedgerTransaction: (id: string) => Promise<{ success: boolean; error?: string }>;
   
-  processPOSSale: (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName?: string) => Promise<void>;
+  processPOSSale: (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName?: string) => Promise<{ success: boolean; error?: string }>;
   
   expenses: Expense[];
   addExpense: (expense: Omit<Expense, 'id'>) => void;
@@ -411,17 +449,15 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deletedVendorsRef = useRef<Set<string>>(loadDeletedIds('sf_del_vendors'));
   const deletedCustomersRef = useRef<Set<string>>(loadDeletedIds('sf_del_customers'));
   const deletedExpensesRef = useRef<Set<string>>(loadDeletedIds('sf_del_expenses'));
+  const deletedLedgerRef = useRef<Set<string>>(loadDeletedIds('sf_del_ledger'));
 
-  // ─── LOCAL STORAGE PERSISTENCE ENGINE ───────────────────────────────────────
-  // State seeds from localStorage so existing data is never lost on page load.
-  // On each Supabase fetch, local-only items are pushed up, then state is
-  // replaced with Supabase data (remote wins). This gives: no data loss +
-  // real-time sync across all devices.
+  // ─── LOCAL STORAGE VAULT SEED & CACHE ──────────────────────────────────────
   const [products, setProducts] = useState<Product[]>(() => loadLocal('sf_products', INITIAL_PRODUCTS));
   const [invoices, setInvoices] = useState<Invoice[]>(() => loadLocal('sf_invoices', INITIAL_INVOICES));
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => loadLocal('sf_pos', INITIAL_POS));
   const [vendors, setVendors] = useState<Vendor[]>(() => loadLocal('sf_vendors', INITIAL_VENDORS));
   const [customers, setCustomers] = useState<Customer[]>(() => loadLocal('sf_customers', INITIAL_CUSTOMERS));
+  const [ledger, setLedger] = useState<LedgerTransaction[]>(() => loadLocal('sf_ledger', []));
   const [activities, setActivities] = useState<Activity[]>(() => loadLocal('sf_activities', INITIAL_ACTIVITIES));
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => loadLocal('sf_notifications', INITIAL_NOTIFICATIONS));
   const [expenses, setExpenses] = useState<Expense[]>(() => loadLocal('sf_expenses', []));
@@ -453,6 +489,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => { localStorage.setItem('sf_pos', JSON.stringify(purchaseOrders)); }, [purchaseOrders]);
   useEffect(() => { localStorage.setItem('sf_vendors', JSON.stringify(vendors)); }, [vendors]);
   useEffect(() => { localStorage.setItem('sf_customers', JSON.stringify(customers)); }, [customers]);
+  useEffect(() => { localStorage.setItem('sf_ledger', JSON.stringify(ledger)); }, [ledger]);
   useEffect(() => { localStorage.setItem('sf_activities', JSON.stringify(activities)); }, [activities]);
   useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
   useEffect(() => { localStorage.setItem('sf_expenses', JSON.stringify(expenses)); }, [expenses]);
@@ -587,7 +624,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.removeItem('sf_auth_session');
   };
 
-  // ─── Mount: immediately fetch all data + wire up realtime + polling ─────────
+  // ─── Mount: immediately fetch all data + wire up realtime subscription ─────
   useEffect(() => {
     const { url, key } = getSupabaseCredentials();
     setSupabaseUrl(url);
@@ -602,6 +639,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .channel('sf-global-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, () => fetchFromSupabase())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, () => fetchFromSupabase())
@@ -617,8 +655,6 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.warn('[StockFlow] Realtime subscription failed:', err);
     }
 
-    const pollInterval = setInterval(() => fetchFromSupabase(), 5000);
-
     const handleFocus = () => fetchFromSupabase();
     window.addEventListener('focus', handleFocus);
     window.addEventListener('visibilitychange', () => {
@@ -626,46 +662,10 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
 
     return () => {
-      clearInterval(pollInterval);
       window.removeEventListener('focus', handleFocus);
       if (channel) sb.removeChannel(channel);
     };
   }, []);
-
-  const mergeEntities = <T extends { id: string }>(
-    currentLocal: T[],
-    remoteFetched: T[],
-    deletedSet: Set<string>
-  ): { merged: T[]; unsynced: T[] } => {
-    const validRemote = remoteFetched.filter(r => r && r.id && !deletedSet.has(r.id));
-    const validLocal = currentLocal.filter(l => l && l.id && !deletedSet.has(l.id));
-
-    const remoteMap = new Map<string, T>();
-    validRemote.forEach(r => remoteMap.set(r.id, r));
-
-    const unsynced: T[] = [];
-    const resultMap = new Map<string, T>();
-
-    // 1. First add all valid local items to resultMap to guarantee newly added local entries are preserved
-    validLocal.forEach(l => {
-      resultMap.set(l.id, l);
-      if (!remoteMap.has(l.id)) {
-        unsynced.push(l);
-      }
-    });
-
-    // 2. Add remote items if they aren't already present in resultMap
-    validRemote.forEach(r => {
-      if (!resultMap.has(r.id)) {
-        resultMap.set(r.id, r);
-      }
-    });
-
-    return {
-      merged: Array.from(resultMap.values()),
-      unsynced,
-    };
-  };
 
   const fetchFromSupabase = async () => {
     const sb = getSupabase();
@@ -678,6 +678,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         { data: poData },
         { data: vData },
         { data: cData },
+        { data: lData },
         { data: actData },
         { data: notifData },
         { data: uData },
@@ -689,6 +690,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         sb.from('purchase_orders').select('*').order('created_at', { ascending: false }),
         sb.from('vendors').select('*').order('created_at', { ascending: false }),
         sb.from('customers').select('*').order('created_at', { ascending: false }),
+        sb.from('ledger').select('*').order('created_at', { ascending: false }),
         sb.from('activities').select('*').order('id', { ascending: false }).limit(50),
         sb.from('notifications').select('*').order('id', { ascending: false }).limit(50),
         sb.from('users').select('*'),
@@ -696,69 +698,33 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         sb.from('categories').select('*'),
       ]);
 
-      // ── Strategy: migrate local-only items to Supabase, then remote wins ─
-      // Each setState callback receives the CURRENT local state (prev), finds
-      // any items that exist locally but not in Supabase (unsynced), pushes
-      // them to Supabase, then RETURNS remoteData so the UI shows exactly what
-      // is in the database. This ensures:
-      // 1. No data loss — local-only data is migrated to Supabase on first sync
-      // 2. Real-time — all devices show the same Supabase data after each poll
-
-      const remoteProducts = (pData || []).map(mapProductFromDB).filter((r: Product) => !deletedProductsRef.current.has(r.id));
-      const remoteInvoices = (iData || []).map(mapInvoiceFromDB).filter((r: Invoice) => !deletedInvoicesRef.current.has(r.id));
-      const remotePOs = (poData || []).map(mapPOFromDB).filter((r: PurchaseOrder) => !deletedPORef.current.has(r.id));
-      const remoteVendors = (vData || []).map(mapVendorFromDB).filter((r: Vendor) => !deletedVendorsRef.current.has(r.id));
-      const remoteCustomers = (cData || []).map(mapCustomerFromDB).filter((r: Customer) => !deletedCustomersRef.current.has(r.id));
-      const remoteExpenses = (expData || []).map(mapExpenseFromDB).filter((r: Expense) => !deletedExpensesRef.current.has(r.id));
-
-      const remoteProductIds = new Set(remoteProducts.map(r => r.id));
-      const remoteInvoiceIds = new Set(remoteInvoices.map(r => r.id));
-      const remotePOIds = new Set(remotePOs.map(r => r.id));
-      const remoteVendorIds = new Set(remoteVendors.map(r => r.id));
-      const remoteCustomerIds = new Set(remoteCustomers.map(r => r.id));
-      const remoteExpenseIds = new Set(remoteExpenses.map(r => r.id));
-
       if (pData) {
-        setProducts(prev => {
-          const unsynced = prev.filter(l => !deletedProductsRef.current.has(l.id) && !remoteProductIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
-          return remoteProducts; // Supabase wins — but unsynced locals were pushed first
-        });
+        const remoteProducts = pData.map(mapProductFromDB).filter((r: Product) => !deletedProductsRef.current.has(r.id));
+        setProducts(remoteProducts);
       }
       if (iData) {
-        setInvoices(prev => {
-          const unsynced = prev.filter(l => !deletedInvoicesRef.current.has(l.id) && !remoteInvoiceIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
-          return remoteInvoices;
-        });
+        const remoteInvoices = iData.map(mapInvoiceFromDB).filter((r: Invoice) => !deletedInvoicesRef.current.has(r.id));
+        setInvoices(remoteInvoices);
       }
       if (poData) {
-        setPurchaseOrders(prev => {
-          const unsynced = prev.filter(l => !deletedPORef.current.has(l.id) && !remotePOIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
-          return remotePOs;
-        });
+        const remotePOs = poData.map(mapPOFromDB).filter((r: PurchaseOrder) => !deletedPORef.current.has(r.id));
+        setPurchaseOrders(remotePOs);
       }
       if (vData) {
-        setVendors(prev => {
-          const unsynced = prev.filter(l => !deletedVendorsRef.current.has(l.id) && !remoteVendorIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
-          return remoteVendors;
-        });
+        const remoteVendors = vData.map(mapVendorFromDB).filter((r: Vendor) => !deletedVendorsRef.current.has(r.id));
+        setVendors(remoteVendors);
       }
       if (cData) {
-        setCustomers(prev => {
-          const unsynced = prev.filter(l => !deletedCustomersRef.current.has(l.id) && !remoteCustomerIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
-          return remoteCustomers;
-        });
+        const remoteCustomers = cData.map(mapCustomerFromDB).filter((r: Customer) => !deletedCustomersRef.current.has(r.id));
+        setCustomers(remoteCustomers);
+      }
+      if (lData) {
+        const remoteLedger = lData.map(mapLedgerFromDB).filter((r: LedgerTransaction) => !deletedLedgerRef.current.has(r.id));
+        setLedger(remoteLedger);
       }
       if (expData) {
-        setExpenses(prev => {
-          const unsynced = prev.filter(l => !deletedExpensesRef.current.has(l.id) && !remoteExpenseIds.has(l.id));
-          if (unsynced.length > 0) safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
-          return remoteExpenses;
-        });
+        const remoteExpenses = expData.map(mapExpenseFromDB).filter((r: Expense) => !deletedExpensesRef.current.has(r.id));
+        setExpenses(remoteExpenses);
       }
 
       if (actData && actData.length > 0) setActivities(actData);
@@ -781,7 +747,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setIsSupabaseConnected(true);
       setSyncStatus('synced');
     } catch (err: any) {
-      console.warn('[StockFlow] Cloud fetch error — retaining local vault data:', err);
+      console.warn('[StockFlow] Supabase fetch error:', err);
       setSyncStatus('synced');
       setIsSupabaseConnected(true);
     } finally {
@@ -930,7 +896,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // 1. ADD PRODUCT
-  const addProduct = async (productData: Omit<Product, 'id' | 'status'> & { id?: string }) => {
+  const addProduct = async (productData: Omit<Product, 'id' | 'status'> & { id?: string }): Promise<{ success: boolean; error?: string }> => {
     const newId = productData.id || `P-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const status = calcStatus(productData.qty, productData.min);
     const newProduct: Product = {
@@ -939,52 +905,76 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       status,
     };
 
-    setProducts(prev => [newProduct, ...prev]);
-    await addActivity('alert', 'Product Added', `${newProduct.name} (${newProduct.sku}) created.`);
-
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('products').upsert(mapProductToDB(newProduct)));
+      const { error } = await sb.from('products').upsert(mapProductToDB(newProduct));
+      if (error) {
+        console.error('[StockFlow] Add product failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setProducts(prev => [newProduct, ...prev.filter(p => p.id !== newId)]);
+    await addActivity('alert', 'Product Added', `${newProduct.name} (${newProduct.sku}) created.`);
+    return { success: true };
   };
 
   // 2. UPDATE PRODUCT
-  const updateProduct = async (id: string, updates: Partial<Product>) => {
-    let updatedProduct: Product | undefined;
-    setProducts(prev => prev.map(p => {
-      if (p.id === id) {
-        updatedProduct = { ...p, ...updates };
-        updatedProduct.status = calcStatus(updatedProduct.qty, updatedProduct.min);
-        return updatedProduct;
-      }
-      return p;
-    }));
+  const updateProduct = async (id: string, updates: Partial<Product>): Promise<{ success: boolean; error?: string }> => {
+    const existing = products.find(p => p.id === id);
+    if (!existing) return { success: false, error: 'Product not found' };
 
-    const sb = getSupabase();
-    if (sb && updatedProduct) {
-      safeSbCall(sb.from('products').upsert(mapProductToDB(updatedProduct)));
-    }
-  };
-
-  // 3. DELETE PRODUCT
-  const deleteProduct = async (id: string) => {
-    deletedProductsRef.current.add(id);
-    saveDeletedIds('sf_del_products', deletedProductsRef.current);
-    setProducts(prev => prev.filter(p => p.id !== id));
+    const updatedProduct = { ...existing, ...updates };
+    updatedProduct.status = calcStatus(updatedProduct.qty, updatedProduct.min);
 
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('products').delete().eq('id', id));
+      const { error } = await sb.from('products').upsert(mapProductToDB(updatedProduct));
+      if (error) {
+        console.error('[StockFlow] Update product failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setProducts(prev => prev.map(p => p.id === id ? updatedProduct : p));
+    return { success: true };
+  };
+
+  // 3. DELETE PRODUCT
+  const deleteProduct = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    deletedProductsRef.current.add(id);
+    saveDeletedIds('sf_del_products', deletedProductsRef.current);
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('products').delete().eq('id', id);
+      if (error) {
+        console.error('[StockFlow] Delete product failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    setProducts(prev => prev.filter(p => p.id !== id));
+    return { success: true };
   };
 
   // 4. ADJUST STOCK
-  const adjustStock = async (id: string, newQty: number) => {
+  const adjustStock = async (id: string, newQty: number): Promise<{ success: boolean; error?: string }> => {
     const prod = products.find(p => p.id === id);
-    if (!prod) return;
+    if (!prod) return { success: false, error: 'Product not found' };
 
     const newStatus = calcStatus(newQty, prod.min);
     const updated = { ...prod, qty: newQty, status: newStatus };
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('products').upsert(mapProductToDB(updated));
+      if (error) {
+        console.error('[StockFlow] Adjust stock failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
     setProducts(prev => prev.map(p => p.id === id ? updated : p));
 
     if (newQty <= prod.min) {
@@ -992,88 +982,129 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
 
     await addActivity('alert', 'Stock Level Adjusted', `${prod.name} updated to ${newQty} units.`);
-
-    const sb = getSupabase();
-    if (sb) {
-      safeSbCall(sb.from('products').upsert(mapProductToDB(updated)));
-    }
+    return { success: true };
   };
 
   // 5. ADD INVOICE
-  const addInvoice = async (invoiceData: Omit<Invoice, 'id'> & { id?: string }) => {
+  const addInvoice = async (invoiceData: Omit<Invoice, 'id'> & { id?: string }): Promise<{ success: boolean; error?: string }> => {
     const newId = invoiceData.id || `INV-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const newInvoice: Invoice = {
       ...invoiceData,
       id: newId,
     };
 
-    setInvoices(prev => [newInvoice, ...prev]);
-
-    setCustomers(prev => prev.map(c => {
-      const matchName = c.name.toLowerCase() === newInvoice.customer.toLowerCase() ||
-                        (c.company && c.company.toLowerCase() === newInvoice.customer.toLowerCase());
-      if (matchName) {
-        const newDebit = (c.debit || 0) + newInvoice.amount;
-        const newCredit = c.credit || 0;
-        const newBalance = newDebit - newCredit;
-        const newSpend = (c.spend || 0) + newInvoice.amount;
-        const newOrders = (c.orders || 0) + 1;
-        const updatedC = {
-          ...c,
-          debit: newDebit,
-          balance: newBalance,
-          spend: newSpend,
-          orders: newOrders
-        };
-        const sb = getSupabase();
-        if (sb) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
-        return updatedC;
-      }
-      return c;
-    }));
-
-    await addActivity('order', 'New Invoice Created', `${newInvoice.id} issued to ${newInvoice.customer} for PKR ${newInvoice.amount.toLocaleString()}`);
-
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)));
+      const { error } = await sb.from('invoices').upsert(mapInvoiceToDB(newInvoice));
+      if (error) {
+        console.error('[StockFlow] Add invoice failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setInvoices(prev => [newInvoice, ...prev.filter(i => i.id !== newId)]);
+
+    const targetC = customers.find(c =>
+      c.name.toLowerCase() === newInvoice.customer.toLowerCase() ||
+      (c.company && c.company.toLowerCase() === newInvoice.customer.toLowerCase())
+    );
+
+    if (targetC) {
+      const newDebit = (targetC.debit || 0) + newInvoice.amount;
+      const newCredit = targetC.credit || 0;
+      const newBalance = newDebit - newCredit;
+      const newSpend = (targetC.spend || 0) + newInvoice.amount;
+      const newOrders = (targetC.orders || 0) + 1;
+      const updatedC = {
+        ...targetC,
+        debit: newDebit,
+        balance: newBalance,
+        spend: newSpend,
+        orders: newOrders
+      };
+
+      if (sb) {
+        await sb.from('customers').upsert(mapCustomerToDB(updatedC));
+        const ledId = `LED-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const newLedgerEntry: LedgerTransaction = {
+          id: ledId,
+          customerId: targetC.id,
+          customerName: targetC.name,
+          type: 'debit',
+          amount: newInvoice.amount,
+          description: `Invoice ${newInvoice.id} issued`,
+          date: newInvoice.date || new Date().toISOString().split('T')[0],
+          referenceId: newInvoice.id,
+          createdAt: new Date().toISOString(),
+        };
+        await sb.from('ledger').upsert(mapLedgerToDB(newLedgerEntry));
+        setLedger(prev => [newLedgerEntry, ...prev]);
+      }
+
+      setCustomers(prev => prev.map(c => c.id === targetC.id ? updatedC : c));
+    }
+
+    await addActivity('order', 'New Invoice Created', `${newInvoice.id} issued to ${newInvoice.customer} for PKR ${newInvoice.amount.toLocaleString()}`);
+    return { success: true };
   };
 
   // 6. MARK INVOICE PAID
-  const markInvoicePaid = async (id: string) => {
+  const markInvoicePaid = async (id: string): Promise<{ success: boolean; error?: string }> => {
     const inv = invoices.find(i => i.id === id);
-    if (!inv) return;
+    if (!inv) return { success: false, error: 'Invoice not found' };
 
     const updatedInv = { ...inv, status: 'paid' };
-    setInvoices(prev => prev.map(i => i.id === id ? updatedInv : i));
-
-    setCustomers(prev => prev.map(c => {
-      const matchName = c.name.toLowerCase() === inv.customer.toLowerCase() ||
-                        (c.company && c.company.toLowerCase() === inv.customer.toLowerCase());
-      if (matchName) {
-        const newCredit = (c.credit || 0) + inv.amount;
-        const newDebit = c.debit || 0;
-        const newBalance = newDebit - newCredit;
-        const updatedC = {
-          ...c,
-          credit: newCredit,
-          balance: newBalance
-        };
-        const sb = getSupabase();
-        if (sb) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
-        return updatedC;
-      }
-      return c;
-    }));
-
-    await addActivity('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} received for invoice ${inv.id}`);
-    await addNotification('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} from ${inv.customer}`);
 
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(updatedInv)));
+      const { error } = await sb.from('invoices').upsert(mapInvoiceToDB(updatedInv));
+      if (error) {
+        console.error('[StockFlow] Mark invoice paid failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setInvoices(prev => prev.map(i => i.id === id ? updatedInv : i));
+
+    const targetC = customers.find(c =>
+      c.name.toLowerCase() === inv.customer.toLowerCase() ||
+      (c.company && c.company.toLowerCase() === inv.customer.toLowerCase())
+    );
+
+    if (targetC) {
+      const newCredit = (targetC.credit || 0) + inv.amount;
+      const newDebit = targetC.debit || 0;
+      const newBalance = newDebit - newCredit;
+      const updatedC = {
+        ...targetC,
+        credit: newCredit,
+        balance: newBalance
+      };
+
+      if (sb) {
+        await sb.from('customers').upsert(mapCustomerToDB(updatedC));
+        const ledId = `LED-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const newLedgerEntry: LedgerTransaction = {
+          id: ledId,
+          customerId: targetC.id,
+          customerName: targetC.name,
+          type: 'credit',
+          amount: inv.amount,
+          description: `Payment received for Invoice ${inv.id}`,
+          date: new Date().toISOString().split('T')[0],
+          referenceId: inv.id,
+          createdAt: new Date().toISOString(),
+        };
+        await sb.from('ledger').upsert(mapLedgerToDB(newLedgerEntry));
+        setLedger(prev => [newLedgerEntry, ...prev]);
+      }
+
+      setCustomers(prev => prev.map(c => c.id === targetC.id ? updatedC : c));
+    }
+
+    await addActivity('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} received for invoice ${inv.id}`);
+    await addNotification('payment', 'Payment Received', `PKR ${inv.amount.toLocaleString()} from ${inv.customer}`);
+    return { success: true };
   };
 
   // 7. ADD PURCHASE ORDER
@@ -1149,7 +1180,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // 10. ADD CUSTOMER
-  const addCustomer = async (customerData: Omit<Customer, 'id'> & { id?: string }) => {
+  const addCustomer = async (customerData: Omit<Customer, 'id'> & { id?: string }): Promise<{ success: boolean; error?: string }> => {
     const newId = customerData.id || `CUS-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const credit = Number(customerData.credit || 0);
     const debit = Number(customerData.debit || 0);
@@ -1167,17 +1198,22 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       balance,
     };
 
-    setCustomers(prev => [newCustomer, ...prev]);
-    await addActivity('user', 'New Customer Ledger Created', `${newCustomer.name} (${newCustomer.city || newCustomer.phone})`);
-
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('customers').upsert(mapCustomerToDB(newCustomer)));
+      const { error } = await sb.from('customers').upsert(mapCustomerToDB(newCustomer));
+      if (error) {
+        console.error('[StockFlow] Add customer failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setCustomers(prev => [newCustomer, ...prev.filter(c => c.id !== newId)]);
+    await addActivity('user', 'New Customer Ledger Created', `${newCustomer.name} (${newCustomer.city || newCustomer.phone})`);
+    return { success: true };
   };
 
   // 10a2. BULK ADD CUSTOMERS
-  const bulkAddCustomers = async (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => {
+  const bulkAddCustomers = async (customersList: Array<Omit<Customer, 'id'> & { id?: string }>): Promise<{ success: boolean; error?: string }> => {
     const newCustomers: Customer[] = customersList.map((c, idx) => {
       const newId = c.id || `CUS-${Date.now().toString().slice(-6)}-${idx}-${Math.floor(Math.random() * 1000)}`;
       const credit = Number(c.credit || 0);
@@ -1197,43 +1233,102 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       };
     });
 
-    setCustomers(prev => [...newCustomers, ...prev]);
-    await addActivity('user', 'Bulk Customers Imported', `${newCustomers.length} customer records uploaded & added to CRM.`);
-
     const sb = getSupabase();
     if (sb) {
-      safeSbCall(sb.from('customers').upsert(newCustomers.map(mapCustomerToDB)));
+      const { error } = await sb.from('customers').upsert(newCustomers.map(mapCustomerToDB));
+      if (error) {
+        console.error('[StockFlow] Bulk add customers failed:', error);
+        return { success: false, error: error.message };
+      }
     }
+
+    setCustomers(prev => [...newCustomers, ...prev]);
+    await addActivity('user', 'Bulk Customers Imported', `${newCustomers.length} customer records uploaded & added to CRM.`);
+    return { success: true };
   };
 
   // 10b. UPDATE CUSTOMER
-  const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    let updatedC: Customer | undefined;
-    setCustomers(prev => prev.map(c => {
-      if (c.id === id) {
-        const merged = { ...c, ...updates };
-        const credit = Number(merged.credit || 0);
-        const debit = Number(merged.debit || 0);
-        merged.balance = debit - credit;
-        updatedC = merged;
-        return merged;
-      }
-      return c;
-    }));
+  const updateCustomer = async (id: string, updates: Partial<Customer>): Promise<{ success: boolean; error?: string }> => {
+    const existing = customers.find(c => c.id === id);
+    if (!existing) return { success: false, error: 'Customer not found' };
+
+    const merged = { ...existing, ...updates };
+    const credit = Number(merged.credit || 0);
+    const debit = Number(merged.debit || 0);
+    merged.balance = debit - credit;
+
     const sb = getSupabase();
-    if (sb && updatedC) safeSbCall(sb.from('customers').upsert(mapCustomerToDB(updatedC)));
+    if (sb) {
+      const { error } = await sb.from('customers').upsert(mapCustomerToDB(merged));
+      if (error) {
+        console.error('[StockFlow] Update customer failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    setCustomers(prev => prev.map(c => c.id === id ? merged : c));
+    return { success: true };
   };
 
   // 10c. DELETE CUSTOMER
-  const deleteCustomer = async (id: string) => {
+  const deleteCustomer = async (id: string): Promise<{ success: boolean; error?: string }> => {
     deletedCustomersRef.current.add(id);
     saveDeletedIds('sf_del_customers', deletedCustomersRef.current);
-    setCustomers(prev => prev.filter(c => c.id !== id));
+
     const sb = getSupabase();
-    if (sb) safeSbCall(sb.from('customers').delete().eq('id', id));
+    if (sb) {
+      const { error } = await sb.from('customers').delete().eq('id', id);
+      if (error) {
+        console.error('[StockFlow] Delete customer failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    setCustomers(prev => prev.filter(c => c.id !== id));
+    return { success: true };
   };
 
-  // 10d. EXPENSES (Salary, Mill Expenses, Fuel, Loader Expenses)
+  // 10d. LEDGER TRANSACTIONS
+  const addLedgerTransaction = async (transData: Omit<LedgerTransaction, 'id'> & { id?: string }): Promise<{ success: boolean; error?: string }> => {
+    const newId = transData.id || `LED-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
+    const newTrans: LedgerTransaction = {
+      ...transData,
+      id: newId,
+      date: transData.date || new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+    };
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('ledger').upsert(mapLedgerToDB(newTrans));
+      if (error) {
+        console.error('[StockFlow] Add ledger transaction failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    setLedger(prev => [newTrans, ...prev.filter(l => l.id !== newId)]);
+    return { success: true };
+  };
+
+  const deleteLedgerTransaction = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    deletedLedgerRef.current.add(id);
+    saveDeletedIds('sf_del_ledger', deletedLedgerRef.current);
+
+    const sb = getSupabase();
+    if (sb) {
+      const { error } = await sb.from('ledger').delete().eq('id', id);
+      if (error) {
+        console.error('[StockFlow] Delete ledger transaction failed:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    setLedger(prev => prev.filter(l => l.id !== id));
+    return { success: true };
+  };
+
+  // 10e. EXPENSES (Salary, Mill Expenses, Fuel, Loader Expenses)
   const addExpense = async (exp: Omit<Expense, 'id'>) => {
     const newExp: Expense = {
       ...exp,
@@ -1259,8 +1354,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // 11. PROCESS POS SALE
-  const processPOSSale = async (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName = 'Walk-in Customer') => {
-    if (cartItems.length === 0) return;
+  const processPOSSale = async (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName = 'Walk-in Customer'): Promise<{ success: boolean; error?: string }> => {
+    if (cartItems.length === 0) return { success: false, error: 'Cart is empty' };
 
     const subtotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
     const tax = subtotal * 0.085;
@@ -1289,29 +1384,63 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }),
     };
-    setInvoices(prev => [newInvoice, ...prev]);
 
     const sb = getSupabase();
-    setProducts(prev => prev.map(p => {
+
+    if (sb) {
+      const { error: invErr } = await sb.from('invoices').upsert(mapInvoiceToDB(newInvoice));
+      if (invErr) {
+        console.error('[StockFlow] POS Sale invoice failed:', invErr);
+        return { success: false, error: invErr.message };
+      }
+    }
+
+    const updatedProducts: Product[] = [];
+    for (const p of products) {
       const match = cartItems.find(c => c.id === p.id);
       if (match) {
         const newQty = Math.max(0, p.qty - match.qty);
         const newStatus = calcStatus(newQty, p.min);
         const updatedP = { ...p, qty: newQty, status: newStatus };
         if (sb) {
-          safeSbCall(sb.from('products').upsert(mapProductToDB(updatedP)));
+          await sb.from('products').upsert(mapProductToDB(updatedP));
         }
-        return updatedP;
+        updatedProducts.push(updatedP);
+      } else {
+        updatedProducts.push(p);
       }
-      return p;
-    }));
+    }
+
+    const targetC = customers.find(c => c.name.toLowerCase() === customerName.toLowerCase() || (c.company && c.company.toLowerCase() === customerName.toLowerCase()));
+    if (targetC && sb) {
+      const newDebit = (targetC.debit || 0) + total;
+      const newCredit = (targetC.credit || 0) + total;
+      const newBalance = newDebit - newCredit;
+      const updatedC = { ...targetC, debit: newDebit, credit: newCredit, balance: newBalance, spend: (targetC.spend || 0) + total, orders: (targetC.orders || 0) + 1 };
+      await sb.from('customers').upsert(mapCustomerToDB(updatedC));
+      const ledId = `LED-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const newLedgerEntry: LedgerTransaction = {
+        id: ledId,
+        customerId: targetC.id,
+        customerName: targetC.name,
+        type: 'debit',
+        amount: total,
+        description: `POS Sale ${invId}`,
+        date: todayStr,
+        referenceId: invId,
+        createdAt: new Date().toISOString(),
+      };
+      await sb.from('ledger').upsert(mapLedgerToDB(newLedgerEntry));
+      setLedger(prev => [newLedgerEntry, ...prev]);
+      setCustomers(prev => prev.map(c => c.id === targetC.id ? updatedC : c));
+    }
+
+    setInvoices(prev => [newInvoice, ...prev.filter(i => i.id !== invId)]);
+    setProducts(updatedProducts);
 
     await addActivity('payment', 'POS Sale Completed', `${invId} charged $${total.toFixed(2)} (${totalItemCount} items)`);
     await addNotification('payment', 'POS Sale Processed', `$${total.toFixed(2)} charged to ${customerName}`);
-
-    if (sb) {
-      safeSbCall(sb.from('invoices').upsert(mapInvoiceToDB(newInvoice)));
-    }
+    return { success: true };
   };
 
   const markAllNotificationsRead = () => {
@@ -1343,6 +1472,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setPurchaseOrders([]);
     setVendors([]);
     setCustomers([]);
+    setLedger([]);
     setExpenses([]);
     setActivities([
       {
@@ -1356,7 +1486,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setNotifications([]);
 
     ['sf_products','sf_invoices','sf_pos','sf_vendors','sf_customers',
-     'sf_activities','sf_notifications','sf_expenses'].forEach(k => localStorage.removeItem(k));
+     'sf_ledger','sf_activities','sf_notifications','sf_expenses'].forEach(k => localStorage.removeItem(k));
 
     const sb = getSupabase();
     if (sb) {
@@ -1367,6 +1497,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           sb.from('purchase_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
           sb.from('vendors').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
           sb.from('customers').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+          sb.from('ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
           sb.from('expenses').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
         ]);
       } catch (err) {
@@ -1406,6 +1537,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       purchaseOrders,
       vendors,
       customers,
+      ledger,
       expenses,
       activities,
     };
@@ -1426,6 +1558,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       purchaseOrders,
       vendors,
       customers,
+      ledger,
       activities,
       notifications,
       users,
@@ -1464,6 +1597,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       bulkAddCustomers,
       updateCustomer,
       deleteCustomer,
+      addLedgerTransaction,
+      deleteLedgerTransaction,
       processPOSSale,
       expenses,
       addExpense,

@@ -183,6 +183,8 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
   const [sellingRate, setSellingRate] = useState<number | string>('');
   const [wh, setWh] = useState('');
 
+  const [errorMsg, setErrorMsg] = useState('');
+
   useEffect(() => {
     if (!open) {
       setVendor('');
@@ -196,6 +198,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
       setPurchaseRate('');
       setSellingRate('');
       setWh('');
+      setErrorMsg('');
     }
   }, [open, categories]);
 
@@ -210,7 +213,8 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addProduct({
+    setErrorMsg('');
+    const res = await addProduct({
       sku: `SKU-${Date.now().toString().slice(-6)}`,
       name: name.trim(),
       cat,
@@ -222,12 +226,21 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
       contactVendor: contactVendor.trim(),
       wh: wh.trim() || 'Main Warehouse',
     });
+    if (!res.success) {
+      setErrorMsg(res.error || 'Failed to save product in Supabase');
+      return;
+    }
     onClose();
   };
 
   return (
     <Modal open={open} onClose={onClose} title="Add New Inventory Product">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300">
+            ⚠️ {errorMsg}
+          </div>
+        )}
         {/* Header Indicator */}
         <div className="p-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-100 dark:border-blue-900/40 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -929,7 +942,7 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
 
     const cr = Number(credit) || 0;
     const dr = Number(debit) || 0;
-    await addCustomer({
+    const res = await addCustomer({
       name: trimmedName,
       phone: trimmedPhone,
       city: city.trim(),
@@ -939,6 +952,10 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
       balance: dr - cr,
       status,
     });
+    if (!res.success) {
+      setErrorMsg(res.error || 'Failed to save customer in Supabase');
+      return;
+    }
     onClose();
   };
 
@@ -1321,14 +1338,18 @@ export function QuickLedgerModal({
   type: 'debit' | 'credit';
   selectedCustomerId?: string;
 }) {
-  const { customers, updateCustomer, addActivity } = useStockFlow();
+  const { customers, updateCustomer, addLedgerTransaction, addActivity } = useStockFlow();
   const [customerId, setCustomerId] = useState(selectedCustomerId || '');
   const [amount, setAmount] = useState<number | string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (open) {
       setCustomerId(selectedCustomerId || (customers[0]?.id || ''));
       setAmount('');
+      setErrorMsg('');
+      setIsSubmitting(false);
     }
   }, [open, selectedCustomerId, customers]);
 
@@ -1337,32 +1358,63 @@ export function QuickLedgerModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg('');
     if (!activeCustomer || !amount) return;
 
     const val = Number(amount) || 0;
     if (val <= 0) return;
 
-    const curDebit = activeCustomer.debit || 0;
-    const curCredit = activeCustomer.credit || 0;
+    setIsSubmitting(true);
+    try {
+      const curDebit = activeCustomer.debit || 0;
+      const curCredit = activeCustomer.credit || 0;
 
-    const newDebit = isDebit ? curDebit + val : curDebit;
-    const newCredit = !isDebit ? curCredit + val : curCredit;
-    const newBalance = newDebit - newCredit;
+      const newDebit = isDebit ? curDebit + val : curDebit;
+      const newCredit = !isDebit ? curCredit + val : curCredit;
+      const newBalance = newDebit - newCredit;
 
-    await updateCustomer(activeCustomer.id, {
-      debit: newDebit,
-      credit: newCredit,
-      balance: newBalance,
-    });
+      // 1. Create persistent ledger audit record in Supabase
+      const ledRes = await addLedgerTransaction({
+        customerId: activeCustomer.id,
+        customerName: activeCustomer.name,
+        type: isDebit ? 'debit' : 'credit',
+        amount: val,
+        description: isDebit ? 'Manual Billed Charge' : 'Payment Received',
+        date: new Date().toISOString().split('T')[0],
+      });
 
-    const actType = isDebit ? 'order' : 'payment';
-    const actTitle = isDebit
-      ? `Debit Added (PKR ${val.toLocaleString()})`
-      : `Credit Paid (PKR ${val.toLocaleString()})`;
-    const actBody = `${activeCustomer.name} · ${isDebit ? 'Manual Billed Charge' : 'Payment Received'}`;
+      if (!ledRes.success) {
+        setErrorMsg(ledRes.error || 'Failed to save ledger record in Supabase');
+        setIsSubmitting(false);
+        return;
+      }
 
-    await addActivity(actType, actTitle, actBody);
-    onClose();
+      // 2. Update customer aggregate balances in Supabase
+      const custRes = await updateCustomer(activeCustomer.id, {
+        debit: newDebit,
+        credit: newCredit,
+        balance: newBalance,
+      });
+
+      if (!custRes.success) {
+        setErrorMsg(custRes.error || 'Failed to update customer balance in Supabase');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const actType = isDebit ? 'order' : 'payment';
+      const actTitle = isDebit
+        ? `Debit Added (PKR ${val.toLocaleString()})`
+        : `Credit Paid (PKR ${val.toLocaleString()})`;
+      const actBody = `${activeCustomer.name} · ${isDebit ? 'Manual Billed Charge' : 'Payment Received'}`;
+
+      await addActivity(actType, actTitle, actBody);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Operation failed');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1372,6 +1424,12 @@ export function QuickLedgerModal({
       title={isDebit ? "Debit" : "Credit"}
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300">
+            ⚠️ {errorMsg}
+          </div>
+        )}
+
         {/* Banner indicator */}
         <div className={`p-4 rounded-xl border flex items-center justify-between ${
           isDebit 
@@ -1419,16 +1477,17 @@ export function QuickLedgerModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
+          <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">Cancel</button>
           <button
             type="submit"
+            disabled={isSubmitting}
             className={`px-5 py-2 rounded-lg text-white font-bold transition-all shadow-md ${
               isDebit
                 ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
                 : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
-            }`}
+            } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {isDebit ? 'Confirm Debit' : 'Confirm Credit'}
+            {isSubmitting ? 'Saving to Supabase...' : isDebit ? 'Confirm Debit' : 'Confirm Credit'}
           </button>
         </div>
       </form>

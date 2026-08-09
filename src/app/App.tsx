@@ -2263,7 +2263,7 @@ function ExpenseScreen() {
 // ═══════════════════════════════════════════════════════════
 
 function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () => void; hideHeader?: boolean }) {
-  const { customers, activities, updateCustomer, deleteCustomer } = useStockFlow();
+  const { customers, ledger = [], activities, updateCustomer, deleteCustomer } = useStockFlow();
   const [editingCust, setEditingCust] = useState<typeof customers[0] | null>(null);
   const [selectedCustId, setSelectedCustId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2271,7 +2271,7 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
   const [ledgerModalType, setLedgerModalType] = useState<'debit' | 'credit' | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [tab, setTab] = useState("Customers");
-  const tabs = ["Customers", "Activities"];
+  const tabs = ["Customers", "Ledger Transactions", "Activities"];
 
   // Search logic: Filter customers starting with or matching typed query
   const filteredCustomers = customers.filter(c => {
@@ -2734,6 +2734,56 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Ledger Transactions Table ── */}
+      {tab === "Ledger Transactions" && (
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Customer Ledger Audit Trail</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Persistent Supabase PostgreSQL transactions</p>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+              {ledger.length} total entries
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700/60">
+                <tr>
+                  {["Date", "Customer", "Type", "Amount (PKR)", "Description", "Ref ID"].map((h, i) => (
+                    <th key={i} className="px-5 py-3 font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider text-[10px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                {ledger.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                      No ledger transactions recorded yet.
+                    </td>
+                  </tr>
+                ) : ledger.map(l => (
+                  <tr key={l.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors">
+                    <td className="px-5 py-3.5 text-slate-500 font-mono text-[11px]">{l.date}</td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">{l.customerName}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider", l.type === 'debit' ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300" : "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300")}>
+                        {l.type}
+                      </span>
+                    </td>
+                    <td className={cn("px-5 py-3.5 font-mono font-bold text-xs", l.type === 'debit' ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400")}>
+                      {l.type === 'debit' ? '+' : '-'} PKR {Number(l.amount || 0).toLocaleString()}
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{l.description}</td>
+                    <td className="px-5 py-3.5 text-slate-400 font-mono text-[10px]">{l.referenceId || l.id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

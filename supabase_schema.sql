@@ -129,8 +129,21 @@ CREATE TABLE IF NOT EXISTS public.users (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 11. LEDGER TABLE (Customer Ledger Transactions)
+CREATE TABLE IF NOT EXISTS public.ledger (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL DEFAULT '',
+  type TEXT NOT NULL, -- 'debit' or 'credit'
+  amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  description TEXT NOT NULL DEFAULT '',
+  date TEXT NOT NULL,
+  reference_id TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ═══════════════════════════════════════════════════════════
--- ENABLE ROW LEVEL SECURITY (open access for anon key)
+-- ENABLE ROW LEVEL SECURITY
 -- ═══════════════════════════════════════════════════════════
 
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -143,6 +156,7 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ledger ENABLE ROW LEVEL SECURITY;
 
 -- Drop old policies if they exist
 DROP POLICY IF EXISTS "Allow public all access products" ON public.products;
@@ -155,8 +169,9 @@ DROP POLICY IF EXISTS "Allow public all access notifications" ON public.notifica
 DROP POLICY IF EXISTS "Allow public all access expenses" ON public.expenses;
 DROP POLICY IF EXISTS "Allow public all access categories" ON public.categories;
 DROP POLICY IF EXISTS "Allow public all access users" ON public.users;
+DROP POLICY IF EXISTS "Allow public all access ledger" ON public.ledger;
 
--- Create open-access policies (anon key can read/write all)
+-- Create policies matching application access scope
 CREATE POLICY "Allow public all access products" ON public.products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access invoices" ON public.invoices FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access purchase_orders" ON public.purchase_orders FOR ALL USING (true) WITH CHECK (true);
@@ -167,6 +182,7 @@ CREATE POLICY "Allow public all access notifications" ON public.notifications FO
 CREATE POLICY "Allow public all access expenses" ON public.expenses FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access ledger" ON public.ledger FOR ALL USING (true) WITH CHECK (true);
 
 -- ═══════════════════════════════════════════════════════════
 -- ENABLE REALTIME (instant cross-device sync)
@@ -182,6 +198,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.expenses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.categories;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.ledger;
 
 -- ═══════════════════════════════════════════════════════════
 -- DEFAULT USERS (login credentials)
@@ -206,3 +223,4 @@ INSERT INTO public.categories (id, name) VALUES
   ('CAT-007', 'Stationery'),
   ('CAT-008', 'Accessories')
 ON CONFLICT (name) DO NOTHING;
+
