@@ -207,9 +207,9 @@ const mapProductToDB = (p: Product) => ({
   price: Number(p.price || 0),
   purchase_rate: Number(p.purchaseRate || 0),
   vendor: p.vendor || '',
-  contact_vendor: p.contactVendor || '',
   status: p.status || 'in_stock',
   wh: p.wh || 'WH-01',
+  // contact_vendor omitted — column may not exist in cloud table yet (run migration SQL to add it)
 });
 
 const mapInvoiceFromDB = (i: any): Invoice => ({
@@ -272,12 +272,11 @@ const mapVendorToDB = (v: Vendor) => ({
   name: v.name,
   contact: v.contact || '',
   email: v.email || '',
-  payments_slot: v.paymentsSlot || '',
-  payment_method: v.paymentMethod || '',
   orders: Number(v.orders || 0),
   spend: Number(v.spend || 0),
   status: v.status || 'active',
   terms: v.terms || 'Net 30',
+  // payments_slot & payment_method omitted — columns may not exist in cloud table yet (run migration SQL to add them)
 });
 
 const mapCustomerFromDB = (c: any): Customer => ({
@@ -288,7 +287,8 @@ const mapCustomerFromDB = (c: any): Customer => ({
   product: c.product || '',
   credit: Number(c.credit || 0),
   debit: Number(c.debit || 0),
-  balance: Number(c.balance || 0),
+  // Compute balance from debit-credit; do NOT read from DB (column may not exist)
+  balance: Number(c.debit || 0) - Number(c.credit || 0),
   status: c.status || 'active',
   company: c.company || '',
   email: c.email || '',
@@ -305,7 +305,7 @@ const mapCustomerToDB = (c: Customer) => ({
   product: c.product || '',
   credit: Number(c.credit || 0),
   debit: Number(c.debit || 0),
-  balance: Number(c.balance || 0),
+  // NOTE: 'balance' column intentionally omitted — computed server-side from debit-credit
   status: c.status || 'active',
   company: c.company || '',
   email: c.email || '',
@@ -451,19 +451,22 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deletedExpensesRef = useRef<Set<string>>(loadDeletedIds('sf_del_expenses'));
   const deletedLedgerRef = useRef<Set<string>>(loadDeletedIds('sf_del_ledger'));
 
-  // ─── LOCAL STORAGE VAULT SEED & CACHE ──────────────────────────────────────
-  const [products, setProducts] = useState<Product[]>(() => loadLocal('sf_products', INITIAL_PRODUCTS));
-  const [invoices, setInvoices] = useState<Invoice[]>(() => loadLocal('sf_invoices', INITIAL_INVOICES));
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => loadLocal('sf_pos', INITIAL_POS));
-  const [vendors, setVendors] = useState<Vendor[]>(() => loadLocal('sf_vendors', INITIAL_VENDORS));
-  const [customers, setCustomers] = useState<Customer[]>(() => loadLocal('sf_customers', INITIAL_CUSTOMERS));
-  const [ledger, setLedger] = useState<LedgerTransaction[]>(() => loadLocal('sf_ledger', []));
-  const [activities, setActivities] = useState<Activity[]>(() => loadLocal('sf_activities', INITIAL_ACTIVITIES));
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => loadLocal('sf_notifications', INITIAL_NOTIFICATIONS));
-  const [expenses, setExpenses] = useState<Expense[]>(() => loadLocal('sf_expenses', []));
+  // ─── SUPABASE-FIRST STATE (no localStorage seeding for business data) ────────
+  // State starts empty — Supabase is the single source of truth.
+  // fetchFromSupabase() on mount populates all state from the cloud database.
+  const [products, setProducts] = useState<Product[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [ledger, setLedger] = useState<LedgerTransaction[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
 
   const [users, setUsers] = useState<UserAccount[]>(INITIAL_USERS);
 
+  // Auth session persisted in localStorage (non-business preference data — OK to keep)
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     const savedSession = localStorage.getItem('sf_auth_session');
     if (savedSession) {
@@ -478,21 +481,12 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const isAuthenticated = !!currentUser;
 
+  // Categories: safe to keep in localStorage as UI preference (not business records)
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('sf_categories');
     return saved ? JSON.parse(saved) : ["Wheat", "Floor", "Flour / Atta", "Fine / Maida", "Electronics", "Furniture", "Stationery", "Accessories"];
   });
-
-  // Automatically save state to localStorage whenever modified
-  useEffect(() => { localStorage.setItem('sf_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('sf_invoices', JSON.stringify(invoices)); }, [invoices]);
-  useEffect(() => { localStorage.setItem('sf_pos', JSON.stringify(purchaseOrders)); }, [purchaseOrders]);
-  useEffect(() => { localStorage.setItem('sf_vendors', JSON.stringify(vendors)); }, [vendors]);
-  useEffect(() => { localStorage.setItem('sf_customers', JSON.stringify(customers)); }, [customers]);
-  useEffect(() => { localStorage.setItem('sf_ledger', JSON.stringify(ledger)); }, [ledger]);
-  useEffect(() => { localStorage.setItem('sf_activities', JSON.stringify(activities)); }, [activities]);
-  useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
-  useEffect(() => { localStorage.setItem('sf_expenses', JSON.stringify(expenses)); }, [expenses]);
+  // Only persist categories (UI preference) — all business data lives in Supabase only
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);
 
   const addCategory = async (newCat: string) => {
@@ -629,6 +623,10 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const { url, key } = getSupabaseCredentials();
     setSupabaseUrl(url);
     setSupabaseKey(key);
+
+    // Clear stale localStorage business-data keys (no longer used as cache)
+    ['sf_products','sf_invoices','sf_pos','sf_vendors','sf_customers',
+     'sf_ledger','sf_activities','sf_notifications','sf_expenses'].forEach(k => localStorage.removeItem(k));
 
     fetchFromSupabase();
 
