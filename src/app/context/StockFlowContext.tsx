@@ -412,14 +412,16 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deletedCustomersRef = useRef<Set<string>>(loadDeletedIds('sf_del_customers'));
   const deletedExpensesRef = useRef<Set<string>>(loadDeletedIds('sf_del_expenses'));
 
-  // ─── STATE: Start empty, Supabase fills on mount ──────────────────────────
-  // All primary data loads authoritatively from Supabase on first fetch.
-  // LocalStorage is kept only as an offline fallback cache, NOT as a seed.
-  const [products, setProducts] = useState<Product[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  // ─── LOCAL STORAGE PERSISTENCE ENGINE ───────────────────────────────────────
+  // State seeds from localStorage so existing data is never lost on page load.
+  // On each Supabase fetch, local-only items are pushed up, then state is
+  // replaced with Supabase data (remote wins). This gives: no data loss +
+  // real-time sync across all devices.
+  const [products, setProducts] = useState<Product[]>(() => loadLocal('sf_products', INITIAL_PRODUCTS));
+  const [invoices, setInvoices] = useState<Invoice[]>(() => loadLocal('sf_invoices', INITIAL_INVOICES));
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => loadLocal('sf_pos', INITIAL_POS));
+  const [vendors, setVendors] = useState<Vendor[]>(() => loadLocal('sf_vendors', INITIAL_VENDORS));
+  const [customers, setCustomers] = useState<Customer[]>(() => loadLocal('sf_customers', INITIAL_CUSTOMERS));
   const [activities, setActivities] = useState<Activity[]>(() => loadLocal('sf_activities', INITIAL_ACTIVITIES));
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => loadLocal('sf_notifications', INITIAL_NOTIFICATIONS));
   const [expenses, setExpenses] = useState<Expense[]>(() => loadLocal('sf_expenses', []));
@@ -694,51 +696,14 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         sb.from('categories').select('*'),
       ]);
 
-      // ── Supabase is the single source of truth ────────────────────────────
-      // Strategy: use remote data as authoritative. Any locally-created items
-      // that haven't synced yet (not in remote, not deleted) are pushed first,
-      // then state is set purely from what Supabase returns.
+      // ── Strategy: migrate local-only items to Supabase, then remote wins ─
+      // Each setState callback receives the CURRENT local state (prev), finds
+      // any items that exist locally but not in Supabase (unsynced), pushes
+      // them to Supabase, then RETURNS remoteData so the UI shows exactly what
+      // is in the database. This ensures:
+      // 1. No data loss — local-only data is migrated to Supabase on first sync
+      // 2. Real-time — all devices show the same Supabase data after each poll
 
-      const remoteProductIds = new Set((pData || []).map((r: any) => String(r.id)));
-      const remoteInvoiceIds = new Set((iData || []).map((r: any) => String(r.id)));
-      const remotePOIds = new Set((poData || []).map((r: any) => String(r.id)));
-      const remoteVendorIds = new Set((vData || []).map((r: any) => String(r.id)));
-      const remoteCustomerIds = new Set((cData || []).map((r: any) => String(r.id)));
-      const remoteExpenseIds = new Set((expData || []).map((r: any) => String(r.id)));
-
-      // Push any locally-optimistic items (created on this device, not yet in DB)
-      setProducts(prev => {
-        const unsynced = prev.filter(l => !deletedProductsRef.current.has(l.id) && !remoteProductIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
-        return prev; // keep local state unchanged; will be overwritten below
-      });
-      setInvoices(prev => {
-        const unsynced = prev.filter(l => !deletedInvoicesRef.current.has(l.id) && !remoteInvoiceIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
-        return prev;
-      });
-      setPurchaseOrders(prev => {
-        const unsynced = prev.filter(l => !deletedPORef.current.has(l.id) && !remotePOIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
-        return prev;
-      });
-      setVendors(prev => {
-        const unsynced = prev.filter(l => !deletedVendorsRef.current.has(l.id) && !remoteVendorIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
-        return prev;
-      });
-      setCustomers(prev => {
-        const unsynced = prev.filter(l => !deletedCustomersRef.current.has(l.id) && !remoteCustomerIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
-        return prev;
-      });
-      setExpenses(prev => {
-        const unsynced = prev.filter(l => !deletedExpensesRef.current.has(l.id) && !remoteExpenseIds.has(l.id));
-        if (unsynced.length > 0) safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
-        return prev;
-      });
-
-      // ── Now set state authoritatively from Supabase ───────────────────────
       const remoteProducts = (pData || []).map(mapProductFromDB).filter((r: Product) => !deletedProductsRef.current.has(r.id));
       const remoteInvoices = (iData || []).map(mapInvoiceFromDB).filter((r: Invoice) => !deletedInvoicesRef.current.has(r.id));
       const remotePOs = (poData || []).map(mapPOFromDB).filter((r: PurchaseOrder) => !deletedPORef.current.has(r.id));
@@ -746,12 +711,55 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const remoteCustomers = (cData || []).map(mapCustomerFromDB).filter((r: Customer) => !deletedCustomersRef.current.has(r.id));
       const remoteExpenses = (expData || []).map(mapExpenseFromDB).filter((r: Expense) => !deletedExpensesRef.current.has(r.id));
 
-      if (pData) setProducts(remoteProducts);
-      if (iData) setInvoices(remoteInvoices);
-      if (poData) setPurchaseOrders(remotePOs);
-      if (vData) setVendors(remoteVendors);
-      if (cData) setCustomers(remoteCustomers);
-      if (expData) setExpenses(remoteExpenses);
+      const remoteProductIds = new Set(remoteProducts.map(r => r.id));
+      const remoteInvoiceIds = new Set(remoteInvoices.map(r => r.id));
+      const remotePOIds = new Set(remotePOs.map(r => r.id));
+      const remoteVendorIds = new Set(remoteVendors.map(r => r.id));
+      const remoteCustomerIds = new Set(remoteCustomers.map(r => r.id));
+      const remoteExpenseIds = new Set(remoteExpenses.map(r => r.id));
+
+      if (pData) {
+        setProducts(prev => {
+          const unsynced = prev.filter(l => !deletedProductsRef.current.has(l.id) && !remoteProductIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('products').upsert(unsynced.map(mapProductToDB)));
+          return remoteProducts; // Supabase wins — but unsynced locals were pushed first
+        });
+      }
+      if (iData) {
+        setInvoices(prev => {
+          const unsynced = prev.filter(l => !deletedInvoicesRef.current.has(l.id) && !remoteInvoiceIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('invoices').upsert(unsynced.map(mapInvoiceToDB)));
+          return remoteInvoices;
+        });
+      }
+      if (poData) {
+        setPurchaseOrders(prev => {
+          const unsynced = prev.filter(l => !deletedPORef.current.has(l.id) && !remotePOIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('purchase_orders').upsert(unsynced.map(mapPOToDB)));
+          return remotePOs;
+        });
+      }
+      if (vData) {
+        setVendors(prev => {
+          const unsynced = prev.filter(l => !deletedVendorsRef.current.has(l.id) && !remoteVendorIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('vendors').upsert(unsynced.map(mapVendorToDB)));
+          return remoteVendors;
+        });
+      }
+      if (cData) {
+        setCustomers(prev => {
+          const unsynced = prev.filter(l => !deletedCustomersRef.current.has(l.id) && !remoteCustomerIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('customers').upsert(unsynced.map(mapCustomerToDB)));
+          return remoteCustomers;
+        });
+      }
+      if (expData) {
+        setExpenses(prev => {
+          const unsynced = prev.filter(l => !deletedExpensesRef.current.has(l.id) && !remoteExpenseIds.has(l.id));
+          if (unsynced.length > 0) safeSbCall(sb.from('expenses').upsert(unsynced.map(mapExpenseToDB)));
+          return remoteExpenses;
+        });
+      }
 
       if (actData && actData.length > 0) setActivities(actData);
       if (notifData) setNotifications(notifData);
