@@ -1487,24 +1487,43 @@ export function QuickLedgerModal({
       const curDebit = activeCustomer.debit || 0;
       const curCredit = activeCustomer.credit || 0;
 
-      const newDebit = isDebit ? curDebit + val : curDebit;
-      const newCredit = !isDebit ? curCredit + val : curCredit;
+      // When credit (payment received): add to BOTH debit (billed) and credit (paid)
+      // so the transaction is fully settled — same as POS sale logic.
+      // When debit only: only debit (outstanding charge) increases.
+      const newDebit = curDebit + val;           // always add to debit
+      const newCredit = !isDebit ? curCredit + val : curCredit; // only add to credit when paying
       const newBalance = newDebit - newCredit;
 
-      // 1. Create persistent ledger audit record in Supabase
-      const ledRes = await addLedgerTransaction({
+      // 1a. Create debit ledger entry (always — the bill/charge)
+      const debitLedRes = await addLedgerTransaction({
         customerId: activeCustomer.id,
         customerName: activeCustomer.name,
-        type: isDebit ? 'debit' : 'credit',
+        type: 'debit',
         amount: val,
-        description: isDebit ? 'Manual Billed Charge' : 'Payment Received',
+        description: isDebit ? 'Manual Billed Charge' : 'Sale Billed',
         date: new Date().toISOString().split('T')[0],
       });
-
-      if (!ledRes.success) {
-        setErrorMsg(ledRes.error || 'Failed to save ledger record in Supabase');
+      if (!debitLedRes.success) {
+        setErrorMsg(debitLedRes.error || 'Failed to save debit ledger record');
         setIsSubmitting(false);
         return;
+      }
+
+      // 1b. If credit (payment), also create a credit ledger entry
+      if (!isDebit) {
+        const creditLedRes = await addLedgerTransaction({
+          customerId: activeCustomer.id,
+          customerName: activeCustomer.name,
+          type: 'credit',
+          amount: val,
+          description: 'Payment Received',
+          date: new Date().toISOString().split('T')[0],
+        });
+        if (!creditLedRes.success) {
+          setErrorMsg(creditLedRes.error || 'Failed to save credit ledger record');
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       // 2. Update customer aggregate balances in Supabase
