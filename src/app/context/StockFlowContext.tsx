@@ -128,9 +128,16 @@ export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 // PostgrestBuilder objects are Thenables but lack .catch() method in JS bundles.
 const safeSbCall = (builderPromise: any) => {
   if (builderPromise && typeof builderPromise.then === 'function') {
-    builderPromise.then(null, (err: any) => {
-      console.warn('[StockFlow] Supabase query warning:', err);
-    });
+    builderPromise.then(
+      (res: any) => {
+        if (res && res.error) {
+          console.warn('[StockFlow] Supabase operation warning:', res.error);
+        }
+      },
+      (err: any) => {
+        console.warn('[StockFlow] Supabase query warning:', err);
+      }
+    );
   }
 };
 
@@ -625,8 +632,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     remoteFetched: T[],
     deletedSet: Set<string>
   ): { merged: T[]; unsynced: T[] } => {
-    const validRemote = remoteFetched.filter(r => !deletedSet.has(r.id));
-    const validLocal = currentLocal.filter(l => !deletedSet.has(l.id));
+    const validRemote = remoteFetched.filter(r => r && r.id && !deletedSet.has(r.id));
+    const validLocal = currentLocal.filter(l => l && l.id && !deletedSet.has(l.id));
 
     const remoteMap = new Map<string, T>();
     validRemote.forEach(r => remoteMap.set(r.id, r));
@@ -634,12 +641,18 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const unsynced: T[] = [];
     const resultMap = new Map<string, T>();
 
-    validRemote.forEach(r => resultMap.set(r.id, r));
-
+    // 1. First add all valid local items to resultMap to guarantee newly added local entries are preserved
     validLocal.forEach(l => {
+      resultMap.set(l.id, l);
       if (!remoteMap.has(l.id)) {
         unsynced.push(l);
-        resultMap.set(l.id, l);
+      }
+    });
+
+    // 2. Add remote items if they aren't already present in resultMap
+    validRemote.forEach(r => {
+      if (!resultMap.has(r.id)) {
+        resultMap.set(r.id, r);
       }
     });
 
@@ -903,7 +916,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 1. ADD PRODUCT
   const addProduct = async (productData: Omit<Product, 'id' | 'status'> & { id?: string }) => {
-    const newId = productData.id || `P${String(products.length + 1).padStart(3, '0')}`;
+    const newId = productData.id || `P-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const status = calcStatus(productData.qty, productData.min);
     const newProduct: Product = {
       ...productData,
@@ -973,7 +986,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 5. ADD INVOICE
   const addInvoice = async (invoiceData: Omit<Invoice, 'id'> & { id?: string }) => {
-    const newId = invoiceData.id || `INV-2024-${String(invoices.length + 848).padStart(4, '0')}`;
+    const newId = invoiceData.id || `INV-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const newInvoice: Invoice = {
       ...invoiceData,
       id: newId,
@@ -1050,7 +1063,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 7. ADD PURCHASE ORDER
   const addPurchaseOrder = async (poData: Omit<PurchaseOrder, 'id'> & { id?: string }) => {
-    const newId = poData.id || `PO-2024-${String(purchaseOrders.length + 235).padStart(4, '0')}`;
+    const newId = poData.id || `PO-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const newPO: PurchaseOrder = {
       ...poData,
       id: newId,
@@ -1082,7 +1095,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 9. ADD VENDOR
   const addVendor = async (vendorData: Omit<Vendor, 'id'> & { id?: string }) => {
-    const newId = vendorData.id || `V${String(vendors.length + 1).padStart(3, '0')}`;
+    const newId = vendorData.id || `V-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const newVendor: Vendor = {
       ...vendorData,
       id: newId,
@@ -1122,7 +1135,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // 10. ADD CUSTOMER
   const addCustomer = async (customerData: Omit<Customer, 'id'> & { id?: string }) => {
-    const newId = customerData.id || `CUS-${String(customers.length + 1).padStart(3, '0')}`;
+    const newId = customerData.id || `CUS-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const credit = Number(customerData.credit || 0);
     const debit = Number(customerData.debit || 0);
     const balance = debit - credit;
@@ -1151,7 +1164,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // 10a2. BULK ADD CUSTOMERS
   const bulkAddCustomers = async (customersList: Array<Omit<Customer, 'id'> & { id?: string }>) => {
     const newCustomers: Customer[] = customersList.map((c, idx) => {
-      const newId = c.id || `CUS-${String(customers.length + idx + 1).padStart(3, '0')}`;
+      const newId = c.id || `CUS-${Date.now().toString().slice(-6)}-${idx}-${Math.floor(Math.random() * 1000)}`;
       const credit = Number(c.credit || 0);
       const debit = Number(c.debit || 0);
       const balance = debit - credit;
@@ -1239,7 +1252,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const total = subtotal + tax;
     const totalItemCount = cartItems.reduce((s, i) => s + i.qty, 0);
 
-    const invId = `INV-2024-${String(invoices.length + 848).padStart(4, '0')}`;
+    const invId = `INV-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
     const todayStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     const newInvoice: Invoice = {

@@ -340,9 +340,8 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Min Qty</label>
             <input
               type="number"
-              min="1"
-              required
-              placeholder=""
+              min="0"
+              placeholder="10"
               value={min}
               onChange={e => setMin(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-center outline-none focus:border-blue-500"
@@ -354,8 +353,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               type="number"
               step="0.01"
               min="0"
-              required
-              placeholder=""
+              placeholder="0.00"
               value={purchaseRate}
               onChange={e => setPurchaseRate(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
@@ -367,8 +365,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
               type="number"
               step="0.01"
               min="0"
-              required
-              placeholder=""
+              placeholder="0.00"
               value={sellingRate}
               onChange={e => setSellingRate(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold outline-none focus:border-blue-500"
@@ -382,8 +379,7 @@ export function AddProductModal({ open, onClose }: { open: boolean; onClose: () 
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Warehouse Location</label>
             <input
               type="text"
-              required
-              placeholder=""
+              placeholder="Main Warehouse"
               value={wh}
               onChange={e => setWh(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-none focus:border-blue-500"
@@ -611,7 +607,7 @@ export function AddInvoiceModal({ open, onClose }: { open: boolean; onClose: () 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalCustomer = isCustomCustomer ? customCustomer.trim() : customer;
+    const finalCustomer = isCustomCustomer ? customCustomer.trim() : (customer || customers[0]?.name || 'Walk-in Customer');
     if (!finalCustomer) return;
 
     const dateObj = new Date();
@@ -846,7 +842,6 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Contact Person</label>
             <input
               type="text"
-              required
               placeholder="e.g. David Lin"
               value={contact}
               onChange={e => setContact(e.target.value)}
@@ -857,7 +852,6 @@ export function AddVendorModal({ open, onClose }: { open: boolean; onClose: () =
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Payments / Account Slot</label>
             <input
               type="text"
-              required
               placeholder="e.g. Bank Transfer (HBL / IBAN), Cash, Cheque"
               value={paymentsSlot}
               onChange={e => setPaymentsSlot(e.target.value)}
@@ -973,7 +967,6 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
             <input
               type="text"
-              required
               placeholder="e.g. +92 300 1234567"
               value={phone}
               onChange={e => { setPhone(e.target.value); setErrorMsg(''); }}
@@ -987,7 +980,6 @@ export function AddCustomerModal({ open, onClose }: { open: boolean; onClose: ()
             <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">City</label>
             <input
               type="text"
-              required
               placeholder="e.g. Lahore, Karachi, Islamabad"
               value={city}
               onChange={e => setCity(e.target.value)}
