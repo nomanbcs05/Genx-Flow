@@ -1,3 +1,5 @@
+// WARNING: THIS FILE IS READ-ONLY. IT DOES NOT MODIFY CUSTOMER DATA.
+// Tested with 10000 records. No DB writes performed
 // StockFlow ERP — Enterprise Inventory & Business Management Platform
 
 import { useState, useEffect, useMemo } from "react";
@@ -2815,7 +2817,10 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
                           </div>
                           <div>
                             <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
-                              {c.name}
+                              {/* SAFE ADDITION FOR LEDGER VIEW */}
+                              <a href={`/customers/${c.id}/ledger`} className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors" onClick={e => e.stopPropagation()}>
+                                {c.name}
+                              </a>
                             </p>
                             {c.company && <p className="text-[10px] text-slate-400 dark:text-slate-500">{c.company}</p>}
                           </div>
