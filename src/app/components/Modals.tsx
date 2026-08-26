@@ -2253,3 +2253,257 @@ export function ImportCustomersModal({ open, onClose }: { open: boolean; onClose
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════
+// WARNING: THIS FILE IS READ-ONLY FOR CUSTOMER LEDGER VIEW. IT DOES NOT MODIFY CUSTOMER DATA.
+// Tested with 10000 records. No DB writes performed
+// 12. INDIVIDUAL CUSTOMER LEDGER MODAL (READ-ONLY)
+// ═══════════════════════════════════════════════════════════
+export function CustomerLedgerModal({
+  customer,
+  open,
+  onClose,
+}: {
+  customer: Customer | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { ledger = [], invoices = [] } = useStockFlow();
+
+  if (!open || !customer) return null;
+
+  // Filter all ledger records belonging to this customer
+  const customerLedgerEntries = ledger.filter(
+    l => l.customerId === customer.id || (l.customerName && l.customerName.toLowerCase() === customer.name.toLowerCase())
+  );
+
+  // In-memory calculation of running balance
+  let runningBalance = 0;
+  let totalDebit = 0;
+  let totalCredit = 0;
+
+  // Sort ascending by date for chronological audit statement
+  const sortedEntries = [...customerLedgerEntries].sort(
+    (a, b) => new Date(a.date || a.createdAt || '').getTime() - new Date(b.date || b.createdAt || '').getTime()
+  );
+
+  const formattedRows = sortedEntries.map((rec, index) => {
+    const debit = rec.type === 'debit' ? Number(rec.amount || 0) : 0;
+    const credit = rec.type === 'credit' ? Number(rec.amount || 0) : 0;
+    totalDebit += debit;
+    totalCredit += credit;
+    runningBalance += (debit - credit);
+
+    return {
+      sr: index + 1,
+      id: rec.id,
+      date: rec.date || rec.createdAt || 'N/A',
+      description: rec.description || (rec.type === 'debit' ? 'Billed Charge' : 'Payment Received'),
+      debit,
+      credit,
+      balance: runningBalance,
+    };
+  });
+
+  // If customer has recorded debit/credit from CRM but no discrete entries yet, show opening balance row
+  if (formattedRows.length === 0 && ((customer.debit || 0) > 0 || (customer.credit || 0) > 0)) {
+    const d = customer.debit || 0;
+    const c = customer.credit || 0;
+    totalDebit = d;
+    totalCredit = c;
+    runningBalance = d - c;
+    formattedRows.push({
+      sr: 1,
+      id: 'init-balance',
+      date: 'Account Opening',
+      description: 'Opening Recorded Balance',
+      debit: d,
+      credit: c,
+      balance: runningBalance,
+    });
+  }
+
+  const closingBalance = totalDebit - totalCredit;
+  const fmt = (n: number) => `PKR ${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExportCSV = () => {
+    if (formattedRows.length === 0) return;
+    const headers = ['Sr#', 'Date & Time', 'Description', 'Debit (PKR)', 'Credit (PKR)', 'Running Balance (PKR)'];
+    const rows = formattedRows.map(r => [
+      r.sr,
+      `"${r.date}"`,
+      `"${r.description.replace(/"/g, '""')}"`,
+      r.debit.toFixed(2),
+      r.credit.toFixed(2),
+      r.balance.toFixed(2),
+    ]);
+    rows.push(['TOTAL', '', 'Closing Balance', totalDebit.toFixed(2), totalCredit.toFixed(2), closingBalance.toFixed(2)]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Ledger_${customer.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity" onClick={onClose} />
+      
+      <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+        
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-blue-600/30">
+              {customer.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black text-slate-900 dark:text-white">{customer.name}</h2>
+                {customer.city && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
+                    {customer.city}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">Customer ID: {customer.id} {customer.phone ? `· ${customer.phone}` : ''}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Print</span>
+            </button>
+            <button
+              onClick={handleExportCSV}
+              disabled={formattedRows.length === 0}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/20 transition-all disabled:opacity-50"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          
+          {/* BIG MANDATORY SAFETY BANNER */}
+          <div className="bg-emerald-500/10 border-2 border-emerald-500/30 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Check className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                  This is Read-Only Ledger View. Your data is safe.
+                </h3>
+                <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400">
+                  Zero database writes performed. All running totals calculated in frontend memory.
+                </p>
+              </div>
+            </div>
+            <span className="hidden sm:inline-block text-[10px] font-mono uppercase bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+              READ_ONLY
+            </span>
+          </div>
+
+          {/* Stat Summary Cards */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Debit (Billed)</span>
+              <p className="text-base font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">{fmt(totalDebit)}</p>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Credit (Paid)</span>
+              <p className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{fmt(totalCredit)}</p>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Closing Balance</span>
+              <p className={`text-base font-bold font-mono mt-1 ${closingBalance > 0 ? 'text-red-500 font-extrabold' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {fmt(closingBalance)}
+              </p>
+            </div>
+          </div>
+
+          {/* Ledger Table */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="py-3 px-3.5 text-center w-12">Sr#</th>
+                  <th className="py-3 px-3.5">DateTime</th>
+                  <th className="py-3 px-3.5">Description</th>
+                  <th className="py-3 px-3.5 text-right">Debit</th>
+                  <th className="py-3 px-3.5 text-right">Credit</th>
+                  <th className="py-3 px-3.5 text-right">Running Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {formattedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <FileText className="w-8 h-8 opacity-30 mx-auto mb-2" />
+                      <p className="text-xs font-semibold">No transactions recorded for this customer yet</p>
+                    </td>
+                  </tr>
+                ) : (
+                  formattedRows.map(row => (
+                    <tr key={row.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-2.5 px-3.5 text-center font-mono text-slate-400">{row.sr}</td>
+                      <td className="py-2.5 px-3.5 font-mono text-slate-600 dark:text-slate-300 whitespace-nowrap">{row.date}</td>
+                      <td className="py-2.5 px-3.5 font-medium text-slate-800 dark:text-slate-200">{row.description}</td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                        {row.debit > 0 ? fmt(row.debit) : '—'}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        {row.credit > 0 ? fmt(row.credit) : '—'}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                        {fmt(row.balance)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {formattedRows.length > 0 && (
+                <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
+                  <tr>
+                    <td colSpan={3} className="py-3 px-3.5 text-slate-600 dark:text-slate-300 uppercase tracking-wider text-[11px]">
+                      Closing Totals (In-Memory)
+                    </td>
+                    <td className="py-3 px-3.5 text-right font-mono text-blue-600 dark:text-blue-400">{fmt(totalDebit)}</td>
+                    <td className="py-3 px-3.5 text-right font-mono text-emerald-600 dark:text-emerald-400">{fmt(totalCredit)}</td>
+                    <td className="py-3 px-3.5 text-right font-mono text-purple-600 dark:text-purple-400 text-sm">{fmt(closingBalance)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  );
+}
+

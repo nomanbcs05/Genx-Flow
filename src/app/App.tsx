@@ -43,6 +43,7 @@ import {
   ImportCustomersModal,
   POSReceiptModal,
   QuickLedgerModal,
+  CustomerLedgerModal,
   DataSyncModal,
 } from "./components/Modals";
 
@@ -2419,6 +2420,7 @@ function ExpenseScreen() {
 function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () => void; hideHeader?: boolean }) {
   const { customers, ledger = [], activities, updateCustomer, deleteCustomer } = useStockFlow();
   const [editingCust, setEditingCust] = useState<typeof customers[0] | null>(null);
+  const [viewingLedgerCust, setViewingLedgerCust] = useState<typeof customers[0] | null>(null);
   const [selectedCustId, setSelectedCustId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -2459,6 +2461,13 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
 
   return (
     <div className={cn(hideHeader ? "space-y-6" : "p-6 space-y-6 max-w-[1400px] mx-auto")}>
+      {/* Individual Customer Ledger Statement Modal (Read-Only) */}
+      <CustomerLedgerModal
+        customer={viewingLedgerCust}
+        open={viewingLedgerCust !== null}
+        onClose={() => setViewingLedgerCust(null)}
+      />
+
       {/* Quick Ledger Transaction Modal */}
       {ledgerModalType && (
         <QuickLedgerModal
@@ -2807,20 +2816,29 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
                       {/* Name */}
                       <td className="pl-6 pr-4 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs transition-all",
-                            isSelected
-                              ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30"
-                              : "bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950/40 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/40"
-                          )}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setViewingLedgerCust(c); }}
+                            title="Click to view customer ledger statement"
+                            className={cn(
+                              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs transition-all hover:scale-105 active:scale-95 shadow-sm cursor-pointer",
+                              isSelected
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30"
+                                : "bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950/40 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/40 hover:border-blue-300"
+                            )}
+                          >
                             {c.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                          </div>
+                          </button>
                           <div>
                             <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
                               {/* SAFE ADDITION FOR LEDGER VIEW */}
-                              <a href={`/customers/${c.id}/ledger`} className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors" onClick={e => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setViewingLedgerCust(c); }}
+                                className="text-left font-bold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors cursor-pointer"
+                              >
                                 {c.name}
-                              </a>
+                              </button>
                             </p>
                             {c.company && <p className="text-[10px] text-slate-400 dark:text-slate-500">{c.company}</p>}
                           </div>
@@ -2856,6 +2874,13 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
                       <td className="px-4 py-3.5">{statusBadge(c.status)}</td>
                       <td className="pr-6 pl-4 py-3.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setViewingLedgerCust(c)}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 transition-all duration-150 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/60"
+                            title="View Customer Ledger Statement (Read-Only)"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
                             className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 transition-all duration-150 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/60"
