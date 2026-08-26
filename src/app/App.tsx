@@ -16,7 +16,7 @@ import {
   Lock, Mail, Phone, Calendar, Clock, Tag, Box, Command, CheckCircle,
   XCircle, AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight, ArrowDownLeft,
   Package2, UserCheck, MapPin, Sparkles, FileBarChart, SlidersHorizontal,
-  HelpCircle, BarChart2, Zap, Globe, Shield, Key, Star, RefreshCw,
+  HelpCircle, BarChart2, Zap, Globe, Shield, ShieldAlert, Key, Star, RefreshCw,
   Layers, Copy, ExternalLink, Inbox, Grid, List, Database,
   BookOpen, MessageSquare, ChevronsLeft, Send, Info, Menu, Hash,
   Percent, Briefcase, ChevronUp, Target, Award, Wheat, Upload,
