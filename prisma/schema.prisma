@@ -1,0 +1,73 @@
+// SAFETY: THIS DOES NOT MODIFY EXISTING DATA
+// WARNING: THIS FILE IS READ-ONLY FOR EXISTING MODELS. NO MIGRATION RUN ON OLD TABLES.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── EXISTING MODELS (UNTOUCHED / READ ONLY) ─────────────────────────────────
+
+model Product {
+  id           String   @id @default(cuid())
+  sku          String?  @unique
+  name         String
+  cat          String?
+  qty          Float    @default(0)
+  min          Float    @default(0)
+  price        Float    @default(0)
+  purchaseRate Float?   @default(0)
+  vendor       String?
+  status       String   @default("in_stock")
+  wh           String   @default("Main Warehouse")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  city      String?
+  product   String?
+  credit    Float    @default(0)
+  debit     Float    @default(0)
+  balance   Float    @default(0)
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  customerId   String
+  customerName String?
+  type         String   // debit or credit
+  amount       Float    @default(0)
+  description  String?
+  date         DateTime @default(now())
+  createdAt    DateTime @default(now())
+}
+
+// ─── TASK 1: ADD 1 NEW TABLE ONLY - NO MIGRATION TO OLD TABLES ───────────────
+// Note: Do not add @relation to Product. This prevents breaking if Product table changes.
+
+model StockVarianceAudit {
+  id            String   @id @default(cuid())
+  productId     String
+  productName   String   // denormalized for safety
+  date          DateTime @default(now())
+  openingQty    Float
+  soldQty       Float
+  expectedQty   Float
+  actualQty     Float
+  varianceQty   Float
+  reason        String   // Theft, Wastage, Damage, Free Sample, Other
+  notes         String?
+  recordedBy    String?  // user email
+  saleId        String?  // reference only, no relation
+  createdAt     DateTime @default(now())
+}
