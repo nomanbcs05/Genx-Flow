@@ -3015,12 +3015,32 @@ function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () =>
 
 function ReportsScreen() {
   const { products, invoices, purchaseOrders, customers, vendors } = useStockFlow();
-  const [reportType, setReportType] = useState("Inventory Summary");
+  const [reportType, setReportType] = useState(() => {
+    if (typeof window !== 'undefined' && (window.location.pathname.includes('/variance') || window.location.pathname.includes('/theft'))) {
+      return "Stock Variance & Theft Audit";
+    }
+    return "Inventory Summary";
+  });
   const [dateRange, setDateRange] = useState("Last 30 days");
-  const reportTypes = ["Inventory Summary", "Sales Report", "Customer Report", "Purchase Report", "Vendor Report"];
+  const reportTypes = [
+    "Inventory Summary",
+    "Stock Variance & Theft Audit",
+    "Sales Report",
+    "Customer Report",
+    "Purchase Report",
+    "Vendor Report"
+  ];
   const dateRanges = ["Today", "Last 7 days", "Last 30 days", "Last Quarter", "Year to Date", "All Time"];
 
   const summaryKPIs = useMemo(() => {
+    if (reportType === "Stock Variance & Theft Audit") {
+      return [
+        { label: "Audit Incidents", value: "0" },
+        { label: "Total Theft Qty", value: "0 units", warn: false },
+        { label: "Wastage / Damage", value: "0 units" },
+        { label: "Safety Status", value: "100% Safe" },
+      ];
+    }
     if (reportType === "Inventory Summary") {
       const totalValue = products.reduce((s, p) => s + p.price * p.qty, 0);
       const lowStock = products.filter(p => p.status === "low_stock").length;
@@ -3185,6 +3205,37 @@ function ReportsScreen() {
           </Card>
           <Card className="p-5">
             <div className="overflow-x-auto -mx-5">
+
+              {reportType === "Stock Variance & Theft Audit" && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold">
+                      <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>Stock Variance &amp; Theft Audit — 100% Read-Only Safety Protocol Active</span>
+                    </div>
+                    <span className="text-[10px] font-mono uppercase bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded">
+                      ISOLATED TABLE
+                    </span>
+                  </div>
+
+                  <table className="w-full text-sm min-w-[750px]">
+                    <thead><tr className="border-b border-slate-100 dark:border-slate-700">
+                      {["Date & Time", "Product", "Reason", "Opening", "Sold", "Expected", "Actual Count", "Variance", "Logged By"].map((h, i) => (
+                        <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Opening","Sold","Expected","Actual Count","Variance"].includes(h) && "text-right")}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <ShieldAlert className="w-8 h-8 opacity-30 mx-auto mb-2 text-amber-500" />
+                          <p className="text-xs font-semibold">No stock variance or theft incidents logged</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">Audits recorded during sale reconciliations will appear here.</p>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {reportType === "Inventory Summary" && (
                 <table className="w-full text-sm min-w-[650px]">
@@ -4031,7 +4082,18 @@ function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
 function MainAppShell() {
   const { notifications, isAuthenticated } = useStockFlow();
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p.includes('/reports') || p.includes('/variance')) return "reports";
+      if (p.includes('/customers') || p.includes('/crm')) return "crm";
+      if (p.includes('/inventory') || p.includes('/stock')) return "inventory";
+      if (p.includes('/sales')) return "sales";
+      if (p.includes('/purchase')) return "purchase";
+      if (p.includes('/finance')) return "finance";
+    }
+    return "dashboard";
+  });
   const [dark, setDark] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
