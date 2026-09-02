@@ -28,6 +28,9 @@ import {
   PurchaseOrder,
   Vendor,
   Customer,
+  DispatchRecord,
+  DispatchItem,
+  DispatchCustomerGroup,
 } from "./context/StockFlowContext";
 
 import {
@@ -49,7 +52,7 @@ import { PWAInstallBanner } from "./components/PWAInstallBanner";
 
 type Screen =
   | "auth"
-  | "dashboard" | "inventory" | "sales" | "purchase"
+  | "dashboard" | "inventory" | "sales" | "purchase" | "dispatch"
   | "finance" | "crm" | "reports" | "settings";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -142,6 +145,8 @@ function statusBadge(status: string) {
     at_risk: { v: "warning", l: "At Risk" }, inactive: { v: "neutral", l: "Inactive" },
     enterprise: { v: "purple", l: "Enterprise" }, professional: { v: "blue", l: "Professional" },
     growth: { v: "info", l: "Growth" },
+    dispatched: { v: "info", l: "Dispatched" }, delivered: { v: "success", l: "Delivered" },
+    cancelled: { v: "danger", l: "Cancelled" },
   };
   const m = map[status] ?? { v: "neutral" as BadgeVariant, l: status };
   return <Badge variant={m.v} dot>{m.l}</Badge>;
@@ -277,6 +282,7 @@ const NAV = [
     { id: "finance", label: "Finance", icon: DollarSign },
   ]},
   { section: "OPERATIONS", items: [
+    { id: "dispatch", label: "Dispatch System", icon: Truck },
     { id: "crm", label: "CRM", icon: Users },
     { id: "reports", label: "Reports", icon: FileBarChart },
   ]},
@@ -415,8 +421,9 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
   const initials = currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "BS";
   const labels: Record<string, string> = {
     dashboard: "Executive Dashboard", inventory: "Inventory Management",
-    sales: "Sales", purchase: "Purchasing", finance: "Finance",
-    crm: "Customer Relationship", reports: "Reports", settings: "Settings",
+    sales: "Sales", purchase: "Purchasing", dispatch: "Dispatch & Gate Pass (GOT)",
+    finance: "Finance", crm: "Customer Relationship",
+    reports: "Reports", settings: "Settings",
   };
 
   // Real-time clock
@@ -1749,6 +1756,1551 @@ function PurchaseScreen({ onOpenAddPO, onOpenAddVendor }: { onOpenAddPO: () => v
 }
 
 // ═══════════════════════════════════════════════════════════
+// DISPATCH & GATE PASS (GOT) SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// DISPATCH & GATE PASS (GOT) SYSTEM — MULTI-CUSTOMER IN ONE GOT
+// ═══════════════════════════════════════════════════════════
+
+interface CustomerOrderItem {
+  productId: string;
+  sku: string;
+  name: string;
+  cat: string;
+  wh: string;
+  price: number;
+  availableQty: number;
+  dispatchQty: number;
+}
+
+interface CustomerOrderEntry {
+  id: string;
+  customerName: string;
+  contactPerson: string;
+  phone: string;
+  address: string;
+  items: CustomerOrderItem[];
+}
+
+function DispatchScreen() {
+  const {
+    products,
+    dispatches,
+    addDispatch,
+    updateDispatchStatus,
+    adjustStock,
+    customers,
+    currentUser,
+    addInvoice,
+  } = useStockFlow();
+
+  const [tab, setTab] = useState("New Dispatch");
+  const tabs = ["New Dispatch", "Dispatch History", "Analytics"];
+
+  // Product Selection & Search State (Feature 2)
+  const [prodSearch, setProdSearch] = useState("");
+  const [selectedCat, setSelectedCat] = useState("All");
+  const [stockFilter, setStockFilter] = useState<"all" | "in_stock" | "low_stock">("all");
+
+  // Multi-Customer State
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrderEntry[]>([
+    {
+      id: "cust-1",
+      customerName: "",
+      contactPerson: "",
+      phone: "",
+      address: "",
+      items: [],
+    },
+  ]);
+  const [activeCustIdx, setActiveCustIdx] = useState(0);
+
+  // Common Dispatch Info
+  const [vehicleNo, setVehicleNo] = useState("");
+  const [driverName, setDriverName] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // History Filter & Modal State
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState("all");
+  const [viewingDispatch, setViewingDispatch] = useState<DispatchRecord | null>(null);
+  const [createdDispatchSuccess, setCreatedDispatchSuccess] = useState<DispatchRecord | null>(null);
+
+  // Categories list
+  const productCategories = useMemo(() => {
+    return Array.from(new Set(products.map(p => p.cat).filter(Boolean)));
+  }, [products]);
+
+  // Filter products for selection
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchSearch =
+        !prodSearch ||
+        p.name.toLowerCase().includes(prodSearch.toLowerCase()) ||
+        p.sku.toLowerCase().includes(prodSearch.toLowerCase()) ||
+        p.cat.toLowerCase().includes(prodSearch.toLowerCase()) ||
+        (p.wh && p.wh.toLowerCase().includes(prodSearch.toLowerCase()));
+
+      const matchCat = selectedCat === "All" || p.cat === selectedCat;
+
+      const matchStock =
+        stockFilter === "all" ||
+        (stockFilter === "in_stock" && p.qty > 0) ||
+        (stockFilter === "low_stock" && p.qty <= p.min);
+
+      return matchSearch && matchCat && matchStock;
+    });
+  }, [products, prodSearch, selectedCat, stockFilter]);
+
+  // Customer Management
+  const handleAddCustomer = () => {
+    const newEntry: CustomerOrderEntry = {
+      id: `cust-${Date.now()}`,
+      customerName: "",
+      contactPerson: "",
+      phone: "",
+      address: "",
+      items: [],
+    };
+    setCustomerOrders(prev => [...prev, newEntry]);
+    setActiveCustIdx(customerOrders.length);
+  };
+
+  const handleRemoveCustomer = (idx: number) => {
+    if (customerOrders.length <= 1) return;
+    const updated = customerOrders.filter((_, i) => i !== idx);
+    setCustomerOrders(updated);
+    setActiveCustIdx(Math.max(0, Math.min(activeCustIdx, updated.length - 1)));
+  };
+
+  const handleUpdateCustomerField = (custIdx: number, field: keyof CustomerOrderEntry, val: string) => {
+    setCustomerOrders(prev =>
+      prev.map((c, i) => {
+        if (i !== custIdx) return c;
+        const updated = { ...c, [field]: val };
+        if (field === "customerName") {
+          const match = customers.find(
+            cust =>
+              cust.name.toLowerCase() === val.toLowerCase() ||
+              cust.company.toLowerCase() === val.toLowerCase()
+          );
+          if (match) {
+            updated.contactPerson = match.name;
+            updated.phone = match.email;
+            updated.address = match.company;
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  // Product Cart Management for Active Customer
+  const handleAddToCart = (prod: Product, targetCustIdx = activeCustIdx) => {
+    setCustomerOrders(prev =>
+      prev.map((cust, i) => {
+        if (i !== targetCustIdx) return cust;
+        const existing = cust.items.find(item => item.productId === prod.id);
+        if (existing) {
+          return {
+            ...cust,
+            items: cust.items.map(item =>
+              item.productId === prod.id
+                ? { ...item, dispatchQty: item.dispatchQty + 1 }
+                : item
+            ),
+          };
+        }
+        return {
+          ...cust,
+          items: [
+            ...cust.items,
+            {
+              productId: prod.id,
+              sku: prod.sku,
+              name: prod.name,
+              cat: prod.cat,
+              wh: prod.wh || "Main Warehouse",
+              price: prod.price,
+              availableQty: prod.qty,
+              dispatchQty: 1,
+            },
+          ],
+        };
+      })
+    );
+  };
+
+  const handleUpdateCartQty = (custIdx: number, productId: string, qty: number) => {
+    setCustomerOrders(prev =>
+      prev.map((cust, i) => {
+        if (i !== custIdx) return cust;
+        if (qty <= 0) {
+          return {
+            ...cust,
+            items: cust.items.filter(item => item.productId !== productId),
+          };
+        }
+        return {
+          ...cust,
+          items: cust.items.map(item =>
+            item.productId === productId ? { ...item, dispatchQty: qty } : item
+          ),
+        };
+      })
+    );
+  };
+
+  const handleRemoveFromCart = (custIdx: number, productId: string) => {
+    setCustomerOrders(prev =>
+      prev.map((cust, i) => {
+        if (i !== custIdx) return cust;
+        return {
+          ...cust,
+          items: cust.items.filter(item => item.productId !== productId),
+        };
+      })
+    );
+  };
+
+  // Combined Totals Across ALL Customers
+  const combinedTotalUnits = customerOrders.reduce(
+    (total, cust) => total + cust.items.reduce((s, i) => s + i.dispatchQty, 0),
+    0
+  );
+  const combinedTotalValue = customerOrders.reduce(
+    (total, cust) => total + cust.items.reduce((s, i) => s + i.price * i.dispatchQty, 0),
+    0
+  );
+  const combinedTotalLineItems = customerOrders.reduce(
+    (total, cust) => total + cust.items.length,
+    0
+  );
+  const hasAnyShortage = customerOrders.some(cust =>
+    cust.items.some(item => item.dispatchQty > item.availableQty)
+  );
+  const totalShortageUnits = customerOrders.reduce(
+    (sum, cust) =>
+      sum +
+      cust.items.reduce(
+        (s, i) => s + Math.max(0, i.dispatchQty - i.availableQty),
+        0
+      ),
+    0
+  );
+
+  const safeActiveCustIdx = Math.min(activeCustIdx, customerOrders.length - 1);
+  const activeCustomer = customerOrders[safeActiveCustIdx] || customerOrders[0];
+
+  // ═══════════════════════════════════════════════════════════
+  // SINGLE GOT PRINT (MULTIPLE CUSTOMERS IN ONE RECEIPT)
+  // ═══════════════════════════════════════════════════════════
+  const handlePrintGOT = (record: DispatchRecord) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print the Gate Out Token (GOT).");
+      return;
+    }
+
+    const totalUnits = record.items.reduce((s, i) => s + i.dispatchQty, 0);
+
+    // Build customers and products sequence for single GOT
+    let customerSectionsHtml = "";
+    if (record.customerGroups && record.customerGroups.length > 0) {
+      customerSectionsHtml = record.customerGroups.map((cg, idx) => `
+        <div style="margin-bottom: 14px;">
+          <div style="font-weight: 900; font-size: 15px; color: #000; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">
+            ${cg.customerName || `CUSTOMER ${idx + 1}`}
+          </div>
+          <div style="padding-left: 2px;">
+            ${cg.items.map(item => `
+              <div style="margin-bottom: 8px;">
+                <div style="font-weight: 700; font-size: 13px; text-transform: uppercase; color: #000; line-height: 1.2;">
+                  ${item.name}
+                </div>
+                <div style="font-weight: 900; font-family: monospace; font-size: 14px; color: #000; margin-top: 2px;">
+                  x ${item.dispatchQty}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('<div style="border-top: 1px dashed #666; margin: 10px 0;"></div>');
+    } else {
+      customerSectionsHtml = `
+        <div style="margin-bottom: 14px;">
+          <div style="font-weight: 900; font-size: 15px; color: #000; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">
+            ${record.dispatchTo || "CUSTOMER"}
+          </div>
+          <div style="padding-left: 2px;">
+            ${record.items.map(item => `
+              <div style="margin-bottom: 8px;">
+                <div style="font-weight: 700; font-size: 13px; text-transform: uppercase; color: #000; line-height: 1.2;">
+                  ${item.name}
+                </div>
+                <div style="font-weight: 900; font-family: monospace; font-size: 14px; color: #000; margin-top: 2px;">
+                  x ${item.dispatchQty}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>GOT #${record.tokenNo} — Single Gate Out Token</title>
+          <style>
+            @page {
+              size: 80mm auto;
+              margin: 4mm 6mm;
+            }
+            body {
+              font-family: 'Courier New', Courier, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, monospace;
+              width: 330px;
+              max-width: 100%;
+              margin: 0 auto;
+              padding: 12px 10px;
+              color: #000;
+              background: #fff;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .text-center { text-align: center; }
+            .header-title { font-size: 18px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+            .header-sub { font-size: 11px; font-weight: bold; margin-top: 2px; text-transform: uppercase; }
+            .header-meta { font-size: 10.5px; margin-top: 3px; color: #111; }
+            .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
+            .solid-divider { border-top: 2px solid #000; margin: 12px 0 10px 0; }
+            .dispatch-heading { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+            .total-section { font-size: 14px; font-weight: 900; text-transform: uppercase; display: flex; justify-content: space-between; padding: 4px 0; }
+            .footer { font-size: 10px; text-align: center; margin-top: 14px; color: #222; }
+            .signatures-box { margin-top: 20px; padding-top: 10px; border-top: 1px dashed #666; display: flex; justify-content: space-between; font-size: 9.5px; font-weight: bold; }
+            @media print {
+              body { width: 100%; padding: 0; }
+              button { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="text-center">
+            <div class="header-title">${currentUser?.company || "StockFlow ERP Platform"}</div>
+            <div class="header-sub">Goods Outward Token (Gate Out Pass)</div>
+            <div class="header-meta">Token #: <strong>${record.tokenNo}</strong></div>
+            <div class="header-meta">Date: ${record.date} · Time: ${record.time}</div>
+            ${record.createdBy ? `<div class="header-meta">Issued By: ${record.createdBy}</div>` : ""}
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="dispatch-heading">DISPATCH TO:</div>
+
+          ${customerSectionsHtml}
+
+          <div class="solid-divider"></div>
+
+          <div class="total-section">
+            <span>TOTAL ITEMS:</span>
+            <span style="font-family: monospace; font-size: 16px;">${fmtN(totalUnits)}</span>
+          </div>
+
+          ${
+            record.notes
+              ? `<div style="font-size: 10px; margin-top: 6px; padding: 4px 0; border-top: 1px dotted #999;">
+                  <strong>Notes:</strong> ${record.notes}
+                 </div>`
+              : ""
+          }
+
+          <div class="divider"></div>
+
+          <div class="footer">
+            <p style="font-weight: bold; margin: 0 0 2px 0;">Official Warehouse &amp; Security Clearance</p>
+            <p style="margin: 0;">Verified &amp; Released from Production Dispatch</p>
+          </div>
+
+          <div class="signatures-box">
+            <div>DISPATCH OFFICER<br><span style="font-weight: normal; font-size: 8px;">(Sign)</span></div>
+            <div>SECURITY GATE<br><span style="font-weight: normal; font-size: 8px;">(Stamp/Out)</span></div>
+            <div>RECEIVER<br><span style="font-weight: normal; font-size: 8px;">(Sign)</span></div>
+          </div>
+
+          <script>
+            window.onload = function() { window.print(); };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // COMPLETE BILL PRINT
+  // ═══════════════════════════════════════════════════════════
+  const handlePrintBill = (record: DispatchRecord) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print the Complete Sales Bill.");
+      return;
+    }
+
+    const totalUnits = record.items.reduce((s, i) => s + i.dispatchQty, 0);
+
+    let subtotal = 0;
+    let tableRows = "";
+
+    if (record.customerGroups && record.customerGroups.length > 0) {
+      tableRows = record.customerGroups.map((cg, gIdx) => {
+        const groupRows = cg.items.map((item, idx) => {
+          const prod = products.find(p => p.id === item.productId || p.sku === item.sku);
+          const price = prod ? prod.price : 100;
+          const lineTotal = price * item.dispatchQty;
+          subtotal += lineTotal;
+
+          return `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 6px; text-align: center; font-family: monospace;">${gIdx + 1}.${idx + 1}</td>
+              <td style="padding: 8px 6px;">
+                <div style="font-weight: 700; color: #0f172a; font-size: 12px;">${item.name}</div>
+                <div style="font-size: 10px; color: #64748b; font-family: monospace;">For: <strong>${cg.customerName}</strong> · SKU: ${item.sku}</div>
+              </td>
+              <td style="padding: 8px 6px; text-align: center; font-family: monospace; font-weight: bold;">
+                ${fmtN(item.dispatchQty)}
+              </td>
+              <td style="padding: 8px 6px; text-align: right; font-family: monospace;">
+                ${fmtC(price)}
+              </td>
+              <td style="padding: 8px 6px; text-align: right; font-family: monospace; font-weight: bold; color: #0f172a;">
+                ${fmtC(lineTotal)}
+              </td>
+            </tr>
+          `;
+        }).join("");
+        return groupRows;
+      }).join("");
+    } else {
+      tableRows = record.items.map((item, idx) => {
+        const prod = products.find(p => p.id === item.productId || p.sku === item.sku);
+        const price = prod ? prod.price : 100;
+        const lineTotal = price * item.dispatchQty;
+        subtotal += lineTotal;
+
+        return `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 8px 6px; text-align: center; font-family: monospace;">${idx + 1}</td>
+            <td style="padding: 8px 6px;">
+              <div style="font-weight: 700; color: #0f172a; font-size: 12px;">${item.name}</div>
+              <div style="font-size: 10px; color: #64748b; font-family: monospace;">SKU: ${item.sku}</div>
+            </td>
+            <td style="padding: 8px 6px; text-align: center; font-family: monospace; font-weight: bold;">
+              ${fmtN(item.dispatchQty)}
+            </td>
+            <td style="padding: 8px 6px; text-align: right; font-family: monospace;">
+              ${fmtC(price)}
+            </td>
+            <td style="padding: 8px 6px; text-align: right; font-family: monospace; font-weight: bold; color: #0f172a;">
+              ${fmtC(lineTotal)}
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    const grandTotal = subtotal;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Sales Bill #${record.tokenNo} — ${record.dispatchTo}</title>
+          <style>
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; margin: 0; padding: 15px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #16a34a; padding-bottom: 14px; margin-bottom: 16px; }
+            .title-box h1 { margin: 0; font-size: 22px; font-weight: 900; color: #0f172a; }
+            .title-box .sub { font-size: 13px; font-weight: 800; color: #16a34a; text-transform: uppercase; margin-top: 4px; }
+            .inv-badge { background: #16a34a; color: #fff; padding: 6px 14px; border-radius: 8px; font-weight: 800; font-family: monospace; font-size: 14px; display: inline-block; }
+            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+            .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+            .box-heading { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-bottom: 6px; }
+            .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; margin-bottom: 16px; font-size: 12px; }
+            th { background: #f1f5f9; padding: 8px 6px; text-align: left; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; }
+            .sum-box { width: 280px; margin-left: auto; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; font-size: 12px; margin-bottom: 20px; }
+            .sum-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+            .grand-total { border-top: 2px solid #16a34a; padding-top: 6px; margin-top: 6px; font-size: 15px; font-weight: 900; color: #16a34a; }
+            .sig-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 36px; }
+            .sig-col { border-top: 1.5px dashed #64748b; padding-top: 6px; text-align: center; font-size: 10px; font-weight: 700; color: #334155; }
+            @media print { body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title-box">
+              <h1>${currentUser?.company || "StockFlow ERP Platform"}</h1>
+              <div class="sub">Complete Commercial Sale &amp; Dispatch Bill</div>
+            </div>
+            <div style="text-align: right;">
+              <div class="inv-badge">BILL-${record.tokenNo}</div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 3px;">Date: ${record.date} · ${record.time}</div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="box">
+              <div class="box-heading">Dispatched &amp; Billed To</div>
+              <div class="row"><span>Customers:</span><strong>${record.dispatchTo}</strong></div>
+              <div class="row"><span>Total Customer Groups:</span><strong>${record.customerGroups?.length || 1} Customer(s)</strong></div>
+            </div>
+            <div class="box">
+              <div class="box-heading">Token Reference</div>
+              <div class="row"><span>Token #:</span><strong style="color: #2563eb; font-family: monospace;">${record.tokenNo}</strong></div>
+              <div class="row"><span>Status:</span><strong style="color: #16a34a;">Sale Completed &amp; Delivered</strong></div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th>Item Description &amp; Customer Group</th>
+                <th style="width: 90px; text-align: center;">Qty</th>
+                <th style="width: 120px; text-align: right;">Unit Price</th>
+                <th style="width: 130px; text-align: right;">Total (PKR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+
+          <div class="sum-box">
+            <div class="sum-row"><span>Total Units:</span><strong>${fmtN(totalUnits)} Units</strong></div>
+            <div class="sum-row"><span>Subtotal:</span><strong>${fmtC(subtotal)}</strong></div>
+            <div class="sum-row grand-total"><span>Grand Total:</span><span>${fmtC(grandTotal)}</span></div>
+          </div>
+
+          <div class="sig-grid">
+            <div class="sig-col">PREPARED BY</div>
+            <div class="sig-col">OFFICIAL ERP SEAL</div>
+            <div class="sig-col">CUSTOMER ACCEPTANCE</div>
+          </div>
+
+          <script>window.onload = function() { window.print(); };</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // PRINT ALL / CREATE MULTI-CUSTOMER DISPATCH
+  // ═══════════════════════════════════════════════════════════
+  const handlePrintAll = async () => {
+    const validCustomers = customerOrders.filter(c => c.items.length > 0);
+    if (validCustomers.length === 0) {
+      alert("Please add at least one product for at least one customer before printing.");
+      return;
+    }
+
+    const tokenNumber = `GOT-${new Date().getFullYear()}-${String(dispatches.length + 101).padStart(4, "0")}`;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+
+    const customerGroups: DispatchCustomerGroup[] = validCustomers.map((cust, idx) => {
+      const cName = cust.customerName.trim() || `Customer ${idx + 1}`;
+      return {
+        id: cust.id,
+        customerName: cName,
+        contactPerson: cust.contactPerson.trim() || cName,
+        phone: cust.phone.trim() || "",
+        address: cust.address.trim() || "",
+        items: cust.items.map(item => ({
+          productId: item.productId,
+          sku: item.sku,
+          name: item.name,
+          dispatchQty: item.dispatchQty,
+          availableQty: item.availableQty,
+          overDispatched: item.dispatchQty > item.availableQty,
+          shortage: Math.max(0, item.dispatchQty - item.availableQty),
+        })),
+      };
+    });
+
+    const allItems: DispatchItem[] = [];
+    customerGroups.forEach(cg => {
+      cg.items.forEach(it => {
+        allItems.push(it);
+      });
+    });
+
+    // Deduct stock for all items
+    for (const item of allItems) {
+      const prod = products.find(p => p.id === item.productId);
+      const currentQty = prod ? prod.qty : item.availableQty;
+      const newQty = Math.max(0, currentQty - item.dispatchQty);
+      await adjustStock(item.productId, newQty);
+    }
+
+    const dispatchToSummary = customerGroups.map(cg => cg.customerName).join(", ");
+    const hasOver = allItems.some(i => i.overDispatched);
+
+    const newRecord: Omit<DispatchRecord, "id"> = {
+      tokenNo: tokenNumber,
+      dispatchTo: dispatchToSummary,
+      customerGroups,
+      address: customerGroups[0]?.address || "Standard Client Destinations",
+      contactPerson: customerGroups[0]?.contactPerson || "Various Consignees",
+      phone: customerGroups[0]?.phone || "",
+      date: dateStr,
+      time: timeStr,
+      items: allItems,
+      status: "dispatched",
+      notes: notes.trim(),
+      createdBy: currentUser?.name || "Dispatch Officer",
+      hasOverDispatch: hasOver,
+    };
+
+    addDispatch(newRecord);
+
+    const createdWithId: DispatchRecord = {
+      ...newRecord,
+      id: `DSP-${Date.now().toString().slice(-8)}`,
+    };
+    setCreatedDispatchSuccess(createdWithId);
+
+    // 🖨️ Instantly trigger SINGLE GOT PRINT for all customers!
+    handlePrintGOT(createdWithId);
+
+    // Reset Form to initial 1 empty customer
+    setCustomerOrders([
+      { id: `cust-${Date.now()}`, customerName: "", contactPerson: "", phone: "", address: "", items: [] },
+    ]);
+    setActiveCustIdx(0);
+    setNotes("");
+  };
+
+  // Complete Sale and Print Bill Handler from History
+  const handleCompleteSaleAndBill = async (record: DispatchRecord) => {
+    updateDispatchStatus(record.id, "delivered");
+
+    const billTotal = record.items.reduce((s, i) => {
+      const prod = products.find(p => p.id === i.productId || p.sku === i.sku);
+      return s + (prod ? prod.price * i.dispatchQty : 100 * i.dispatchQty);
+    }, 0);
+
+    const totalUnits = record.items.reduce((s, i) => s + i.dispatchQty, 0);
+
+    await addInvoice({
+      id: `INV-${record.tokenNo}`,
+      customer: record.dispatchTo,
+      date: record.date,
+      due: record.date,
+      amount: billTotal,
+      status: "paid",
+      items: totalUnits,
+    });
+
+    handlePrintBill({ ...record, status: "delivered" });
+  };
+
+  // Filter dispatch history
+  const filteredDispatches = dispatches.filter(d => {
+    const matchSearch =
+      !historySearch ||
+      d.tokenNo.toLowerCase().includes(historySearch.toLowerCase()) ||
+      d.dispatchTo.toLowerCase().includes(historySearch.toLowerCase()) ||
+      d.contactPerson.toLowerCase().includes(historySearch.toLowerCase()) ||
+      d.items.some(i => i.name.toLowerCase().includes(historySearch.toLowerCase()) || i.sku.toLowerCase().includes(historySearch.toLowerCase()));
+
+    const matchStatus = historyStatusFilter === "all" || d.status === historyStatusFilter;
+
+    return matchSearch && matchStatus;
+  });
+
+  // KPI calculations
+  const totalDispatchesCount = dispatches.length;
+  const totalDispatchedUnits = dispatches.reduce(
+    (sum, d) => sum + d.items.reduce((s, i) => s + i.dispatchQty, 0),
+    0
+  );
+  const overDispatchedCount = dispatches.filter(d => d.hasOverDispatch).length;
+  const deliveredSalesCount = dispatches.filter(d => d.status === "delivered").length;
+
+  return (
+    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Truck className="w-6 h-6 text-blue-600" /> Dispatch &amp; Gate Pass (GOT) System
+          </h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Multiple Customers in One GOT · Real-time inventory sync &amp; instant thermal printing
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Btn
+            variant={tab === "New Dispatch" ? "primary" : "outline"}
+            size="sm"
+            onClick={() => setTab("New Dispatch")}
+            icon={<Plus className="w-3.5 h-3.5" />}
+          >
+            Create Dispatch
+          </Btn>
+          <Btn
+            variant={tab === "Dispatch History" ? "primary" : "outline"}
+            size="sm"
+            onClick={() => setTab("Dispatch History")}
+            icon={<FileText className="w-3.5 h-3.5" />}
+          >
+            Dispatch History ({dispatches.length})
+          </Btn>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <Tabs tabs={tabs} active={tab} onChange={setTab} />
+
+      {/* Success Notification Modal / Card after creation */}
+      {createdDispatchSuccess && (
+        <Card className="p-5 border-2 border-emerald-500/40 bg-emerald-50/50 dark:bg-emerald-950/20 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/20">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Single GOT Token Generated: <span className="font-mono text-blue-600 dark:text-blue-400">{createdDispatchSuccess.tokenNo}</span>
+                  </h3>
+                  {createdDispatchSuccess.hasOverDispatch && (
+                    <Badge variant="warning">⚠️ Shortage Permitted &amp; Saved</Badge>
+                  )}
+                  <Badge variant="blue">{createdDispatchSuccess.customerGroups?.length || 1} Customer(s) Included</Badge>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                  Dispatched to <strong>{createdDispatchSuccess.dispatchTo}</strong> ({createdDispatchSuccess.items.length} product lines, {createdDispatchSuccess.items.reduce((s, i) => s + i.dispatchQty, 0)} combined units).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Btn
+                variant="primary"
+                size="sm"
+                onClick={() => handlePrintGOT(createdDispatchSuccess)}
+                icon={<Download className="w-3.5 h-3.5" />}
+              >
+                Print Single GOT
+              </Btn>
+              <Btn
+                variant="outline"
+                size="sm"
+                onClick={() => handlePrintBill(createdDispatchSuccess)}
+                icon={<Receipt className="w-3.5 h-3.5" />}
+              >
+                Print Complete Bill
+              </Btn>
+              <button
+                onClick={() => setCreatedDispatchSuccess(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/50 transition"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* TAB 1: NEW DISPATCH CREATION (MULTI-CUSTOMER IN ONE GOT)   */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {tab === "New Dispatch" && (
+        <div className="space-y-5">
+          {/* Top Multi-Customer Bar & Tab Switcher */}
+          <Card className="p-4 bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Customers in this GOT ({customerOrders.length})
+                </span>
+              </div>
+
+              <Btn
+                variant="primary"
+                size="sm"
+                onClick={handleAddCustomer}
+                icon={<Plus className="w-3.5 h-3.5" />}
+              >
+                Add Another Customer
+              </Btn>
+            </div>
+
+            {/* Customer Selector Pills */}
+            <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
+              {customerOrders.map((cust, idx) => {
+                const isActive = idx === safeActiveCustIdx;
+                const custItemsCount = cust.items.reduce((s, i) => s + i.dispatchQty, 0);
+                const displayName = cust.customerName.trim() || `Customer ${idx + 1}`;
+
+                return (
+                  <div
+                    key={cust.id}
+                    onClick={() => setActiveCustIdx(idx)}
+                    className={cn(
+                      "flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-bold cursor-pointer transition-all duration-150 shrink-0",
+                      isActive
+                        ? "bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20 shadow-sm"
+                        : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+                    )}
+                  >
+                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
+                      {idx + 1}
+                    </span>
+                    <span className="truncate max-w-[140px]">{displayName}</span>
+                    <Badge variant={custItemsCount > 0 ? "blue" : "neutral"} className="text-[10px] px-1.5 py-0">
+                      {custItemsCount} items
+                    </Badge>
+                    {customerOrders.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveCustomer(idx);
+                        }}
+                        className="text-slate-400 hover:text-red-500 p-0.5 ml-1 transition-colors"
+                        title="Remove this customer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* Main Work Area: Left (Products Catalog) & Right (Customer Orders Manifest) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left Column: Product Search & Quick Add to Active Customer */}
+            <div className="lg:col-span-6 space-y-4">
+              <Card className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-blue-600" />
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Product Catalog
+                    </h3>
+                  </div>
+                  <Badge variant="blue">
+                    Adding to: {activeCustomer.customerName.trim() || `Customer ${safeActiveCustIdx + 1}`}
+                  </Badge>
+                </div>
+
+                {/* 2# Professional Search Bar with Search Icon */}
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <div className="relative flex-1 w-full">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-blue-600 dark:text-blue-400">
+                      <Search className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      value={prodSearch}
+                      onChange={e => setProdSearch(e.target.value)}
+                      placeholder="Search product by name, SKU, category, warehouse…"
+                      className="w-full pl-9 pr-9 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-all shadow-sm"
+                    />
+                    {prodSearch && (
+                      <button
+                        onClick={() => setProdSearch("")}
+                        className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <select
+                    value={selectedCat}
+                    onChange={e => setSelectedCat(e.target.value)}
+                    className="px-3 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none shrink-0"
+                  >
+                    <option value="All">All Categories</option>
+                    {productCategories.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={stockFilter}
+                    onChange={e => setStockFilter(e.target.value as any)}
+                    className="px-3 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none shrink-0"
+                  >
+                    <option value="all">All Stock</option>
+                    <option value="in_stock">In Stock Only</option>
+                    <option value="low_stock">Low Stock Only</option>
+                  </select>
+                </div>
+              </Card>
+
+              {/* Products List */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[620px] overflow-y-auto pr-1">
+                {filteredProducts.length === 0 ? (
+                  <div className="col-span-2 py-12 text-center text-slate-400 bg-white dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                    <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No products match your search</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Try searching with a different product name or SKU</p>
+                  </div>
+                ) : (
+                  filteredProducts.map(p => {
+                    const activeCustItem = activeCustomer.items.find(i => i.productId === p.id);
+                    const isShortage = p.qty <= 0;
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={cn(
+                          "p-3.5 rounded-xl border transition-all duration-150 flex flex-col justify-between bg-white dark:bg-slate-800/80 hover:shadow-md",
+                          activeCustItem
+                            ? "border-blue-500/60 ring-1 ring-blue-500/20 bg-blue-50/[0.04]"
+                            : "border-slate-200 dark:border-slate-700/80 hover:border-blue-400"
+                        )}
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-mono text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded">
+                              {p.sku}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              {p.wh || "Main Warehouse"}
+                            </span>
+                          </div>
+                          <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 mt-1.5 line-clamp-2">
+                            {p.name}
+                          </h4>
+                          <p className="text-[11px] text-slate-400">{p.cat}</p>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-mono font-bold text-slate-900 dark:text-white">
+                              {fmtC(p.price)}
+                            </p>
+                            <p className={cn("text-[10px] font-bold mt-0.5", isShortage ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+                              Stock: {p.qty} {isShortage && "(0 in prod)"}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(p, safeActiveCustIdx)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer",
+                              activeCustItem
+                                ? "bg-blue-600 text-white shadow-sm"
+                                : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-blue-600 hover:text-white"
+                            )}
+                          >
+                            <Plus className="w-3 h-3" />
+                            {activeCustItem ? `+ Add (${activeCustItem.dispatchQty})` : `Add to Cust ${safeActiveCustIdx + 1}`}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right Column: Multi-Customer Manifest & Print All (Single GOT) */}
+            <div className="lg:col-span-6 space-y-4">
+              {/* Customer Groups Display & Form */}
+              <div className="space-y-4 max-h-[620px] overflow-y-auto pr-1">
+                {customerOrders.map((cust, custIdx) => {
+                  const isActive = custIdx === safeActiveCustIdx;
+                  const custTotalUnits = cust.items.reduce((s, i) => s + i.dispatchQty, 0);
+
+                  return (
+                    <Card
+                      key={cust.id}
+                      className={cn(
+                        "p-4 transition-all duration-150 space-y-3",
+                        isActive
+                          ? "ring-2 ring-blue-500/40 border-blue-400 shadow-md bg-white dark:bg-slate-800"
+                          : "border-slate-200 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-800/40"
+                      )}
+                    >
+                      {/* Customer Header */}
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                            {custIdx + 1}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            Customer {custIdx + 1} Order
+                          </span>
+                          {isActive && (
+                            <Badge variant="blue" className="text-[10px]">Active for Adding</Badge>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Badge variant="neutral">{custTotalUnits} units</Badge>
+                          {customerOrders.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomer(custIdx)}
+                              className="text-slate-400 hover:text-red-500 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                              title="Delete this customer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Customer Name Input */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 text-xs">
+                        <div className="sm:col-span-8">
+                          <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                            Customer / Dispatch To Name *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. WAQAS, ALI, AHMED, Walk-in"
+                            value={cust.customerName}
+                            onChange={e => handleUpdateCustomerField(custIdx, "customerName", e.target.value)}
+                            onFocus={() => setActiveCustIdx(custIdx)}
+                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
+                          />
+                        </div>
+
+                        {customers.length > 0 && (
+                          <div className="sm:col-span-4">
+                            <label className="block font-semibold text-slate-500 mb-1">Select Client</label>
+                            <select
+                              onChange={e => {
+                                if (e.target.value) handleUpdateCustomerField(custIdx, "customerName", e.target.value);
+                              }}
+                              className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                            >
+                              <option value="">Choose</option>
+                              {customers.map(c => (
+                                <option key={c.id} value={c.name}>{c.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Customer Products List */}
+                      <div className="space-y-2 pt-1">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                          <span>Products for {cust.customerName || `Customer ${custIdx + 1}`} ({cust.items.length})</span>
+                          <button
+                            type="button"
+                            onClick={() => setActiveCustIdx(custIdx)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            + Select from Catalog
+                          </button>
+                        </div>
+
+                        {cust.items.length === 0 ? (
+                          <div
+                            onClick={() => setActiveCustIdx(custIdx)}
+                            className="py-4 text-center text-xs text-slate-400 border border-dashed rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50/20 transition-colors"
+                          >
+                            No products added yet. Click catalog items to add here.
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {cust.items.map(item => {
+                              const isShortage = item.dispatchQty > item.availableQty;
+                              const shortageAmt = item.dispatchQty - item.availableQty;
+
+                              return (
+                                <div
+                                  key={item.productId}
+                                  className={cn(
+                                    "p-2 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all",
+                                    isShortage
+                                      ? "border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20"
+                                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+                                  )}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                                        {item.name}
+                                      </p>
+                                      {isShortage && (
+                                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 dark:bg-amber-900/50 px-1 py-0.5 rounded">
+                                          +{shortageAmt} shortage
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 font-mono">
+                                      {item.sku} · Avail: {item.availableQty}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateCartQty(custIdx, item.productId, item.dispatchQty - 1)}
+                                      className="w-5 h-5 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold hover:bg-slate-100"
+                                    >
+                                      -
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={item.dispatchQty}
+                                      onChange={e => handleUpdateCartQty(custIdx, item.productId, parseInt(e.target.value) || 1)}
+                                      className="w-12 px-1 py-0.5 text-xs text-center font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateCartQty(custIdx, item.productId, item.dispatchQty + 1)}
+                                      className="w-5 h-5 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold hover:bg-slate-100"
+                                    >
+                                      +
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFromCart(custIdx, item.productId)}
+                                      className="text-slate-300 hover:text-red-500 p-1 ml-1"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Combined Totals & Print All Action Card */}
+              <Card className="p-5 space-y-3.5 border-2 border-blue-500/30 bg-blue-50/[0.15] dark:bg-blue-950/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Combined GOT Manifest Summary
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      {customerOrders.length} Customer Group(s) · {combinedTotalLineItems} Total Product Lines
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Total Items</span>
+                    <span className="text-xl font-black font-mono text-blue-600 dark:text-blue-400">
+                      {fmtN(combinedTotalUnits)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Over-dispatch status */}
+                {hasAnyShortage && (
+                  <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>Total Shortage: +{fmtN(totalShortageUnits)} units (Allowed — Over-Dispatch Active)</span>
+                  </div>
+                )}
+
+                {/* Action: Add Another Customer & Print All */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <Btn
+                    variant="outline"
+                    size="md"
+                    onClick={handleAddCustomer}
+                    icon={<Plus className="w-4 h-4" />}
+                    className="w-full font-bold"
+                  >
+                    Add Another Customer
+                  </Btn>
+                  <Btn
+                    variant="primary"
+                    size="md"
+                    onClick={handlePrintAll}
+                    disabled={combinedTotalUnits === 0}
+                    icon={<Download className="w-4 h-4" />}
+                    className="w-full font-bold shadow-md shadow-blue-500/25 text-sm"
+                  >
+                    Print All (Single GOT)
+                  </Btn>
+                </div>
+                <p className="text-[10px] text-center text-slate-400">
+                  Clicking "Print All" saves all customer groups and prints them together in ONE SINGLE GOT receipt.
+                </p>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* TAB 2: DISPATCH HISTORY & DIRECT PRINTING */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {tab === "Dispatch History" && (
+        <Card className="p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <Inp
+                placeholder="Search history by Token #, Customer, or SKU…"
+                value={historySearch}
+                onChange={setHistorySearch}
+                icon={<Search className="w-3.5 h-3.5" />}
+                className="w-full sm:w-80"
+              />
+              <select
+                value={historyStatusFilter}
+                onChange={e => setHistoryStatusFilter(e.target.value)}
+                className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">All Statuses</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="delivered">Delivered / Completed</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+
+            <div className="text-xs text-slate-500 font-semibold">
+              Showing {filteredDispatches.length} of {dispatches.length} records
+            </div>
+          </div>
+
+          {/* History Table */}
+          <div className="overflow-x-auto -mx-5">
+            <table className="w-full text-sm min-w-[850px]">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40">
+                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Token No
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Dispatch To (Customers)
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Date &amp; Time
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Total Items
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Stock Status
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Actions (Single GOT / Bill)
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
+                {filteredDispatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-slate-400">
+                      <Truck className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-semibold text-sm">No dispatch records found</p>
+                      <p className="text-xs mt-0.5">Create your first multi-customer dispatch in the "New Dispatch" tab</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredDispatches.map(record => {
+                    const totalUnits = record.items.reduce((s, i) => s + i.dispatchQty, 0);
+                    const custCount = record.customerGroups?.length || 1;
+
+                    return (
+                      <tr
+                        key={record.id}
+                        className="hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-colors"
+                      >
+                        {/* Token No */}
+                        <td className="px-4 py-3.5">
+                          <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded">
+                            {record.tokenNo}
+                          </span>
+                        </td>
+
+                        {/* Dispatch To */}
+                        <td className="px-4 py-3.5">
+                          <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                            {record.dispatchTo}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {custCount} Customer Group(s)
+                          </div>
+                        </td>
+
+                        {/* Date & Time */}
+                        <td className="px-4 py-3.5 text-xs text-slate-500">
+                          <div>{record.date}</div>
+                          <div className="text-[10px] text-slate-400">{record.time}</div>
+                        </td>
+
+                        {/* Items / Units */}
+                        <td className="px-4 py-3.5 text-center">
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
+                            {fmtN(totalUnits)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block">
+                            ({record.items.length} lines)
+                          </span>
+                        </td>
+
+                        {/* Over-dispatch indicator */}
+                        <td className="px-4 py-3.5 text-center">
+                          {record.hasOverDispatch ? (
+                            <Badge variant="warning">⚠️ Shortage Permitted</Badge>
+                          ) : (
+                            <Badge variant="success">✓ Verified Stock</Badge>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-3.5 text-center">
+                          {statusBadge(record.status)}
+                        </td>
+
+                        {/* ACTIONS */}
+                        <td className="px-4 py-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handlePrintGOT(record)}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 hover:bg-blue-100 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Print Single GOT for All Customers"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>GOT Print</span>
+                            </button>
+
+                            {record.status !== "delivered" ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteSaleAndBill(record)}
+                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                                title="Mark as Delivered and Print Complete Sales Bill"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Complete &amp; Bill</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handlePrintBill(record)}
+                                className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Print Complete Sales Bill"
+                              >
+                                <Receipt className="w-3 h-3" />
+                                <span>Print Bill</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setViewingDispatch(record)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                              title="View Full Dispatch Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* TAB 3: DISPATCH ANALYTICS & KPIS */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {tab === "Analytics" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              label="Total Dispatches"
+              value={fmtN(totalDispatchesCount)}
+              icon={<Truck className="w-5 h-5 text-blue-600" />}
+              iconBg="bg-blue-50 dark:bg-blue-950/50"
+            />
+            <StatCard
+              label="Dispatched Units"
+              value={fmtN(totalDispatchedUnits)}
+              icon={<Package className="w-5 h-5 text-emerald-600" />}
+              iconBg="bg-emerald-50 dark:bg-emerald-950/50"
+            />
+            <StatCard
+              label="Over-Dispatch Tokens"
+              value={fmtN(overDispatchedCount)}
+              icon={<AlertTriangle className="w-5 h-5 text-amber-600" />}
+              iconBg="bg-amber-50 dark:bg-amber-950/50"
+              mono={false}
+            />
+            <StatCard
+              label="Delivered / Completed"
+              value={fmtN(deliveredSalesCount)}
+              icon={<CheckCircle className="w-5 h-5 text-purple-600" />}
+              iconBg="bg-purple-50 dark:bg-purple-950/50"
+              mono={false}
+            />
+          </div>
+
+          <Card className="p-5">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3">
+              Dispatch Operational Overview
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 space-y-1">
+                <p className="font-bold text-blue-700 dark:text-blue-300">Multi-Customer Single GOT</p>
+                <p className="text-slate-600 dark:text-slate-400">
+                  Add unlimited customers and products in one dispatch session and print them together in a single official GOT receipt.
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/50 space-y-1">
+                <p className="font-bold text-amber-700 dark:text-amber-300">Over-Dispatch Allowance</p>
+                <p className="text-slate-600 dark:text-slate-400">
+                  Allows emergency release of goods even when production inventory is low, automatically logging shortage amounts.
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 space-y-1">
+                <p className="font-bold text-emerald-700 dark:text-emerald-300">Instant Commercial Billing</p>
+                <p className="text-slate-600 dark:text-slate-400">
+                  1-Click Complete Sale converts dispatches directly into finalized commercial sales invoices and printable bills.
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Dispatch Detail Modal Drawer */}
+      {viewingDispatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-2.5 py-1 rounded-lg">
+                  {viewingDispatch.tokenNo}
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  Dispatch: {viewingDispatch.dispatchTo}
+                </span>
+              </div>
+              <button
+                onClick={() => setViewingDispatch(null)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                <span className="text-slate-400 block font-semibold">Date &amp; Time</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{viewingDispatch.date} {viewingDispatch.time}</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                <span className="text-slate-400 block font-semibold">Customers</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{viewingDispatch.customerGroups?.length || 1} Group(s)</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                <span className="text-slate-400 block font-semibold">Status</span>
+                <span className="font-bold">{statusBadge(viewingDispatch.status)}</span>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                <span className="text-slate-400 block font-semibold">Authorized By</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{viewingDispatch.createdBy}</span>
+              </div>
+            </div>
+
+            {/* Customer Groups Breakdown */}
+            <div className="space-y-3">
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Customer Groups &amp; Items</p>
+              {viewingDispatch.customerGroups && viewingDispatch.customerGroups.length > 0 ? (
+                viewingDispatch.customerGroups.map((cg, idx) => (
+                  <div key={idx} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-2">
+                    <div className="flex justify-between items-center text-xs font-bold text-blue-600 dark:text-blue-400 border-b pb-1.5">
+                      <span>{idx + 1}. {cg.customerName}</span>
+                      <span>{cg.items.reduce((s, i) => s + i.dispatchQty, 0)} Units</span>
+                    </div>
+                    <div className="space-y-1">
+                      {cg.items.map((item, itemIdx) => (
+                        <div key={itemIdx} className="flex justify-between text-xs">
+                          <span className="text-slate-700 dark:text-slate-300">{item.name} ({item.sku})</span>
+                          <span className="font-mono font-bold">x {item.dispatchQty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border rounded-xl overflow-hidden">
+                  {viewingDispatch.items.map((item, idx) => (
+                    <div key={idx} className="p-3 flex items-center justify-between text-xs bg-white dark:bg-slate-800/40">
+                      <div>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{item.name}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{item.sku}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">
+                          {fmtN(item.dispatchQty)} Units
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Btn
+                variant="outline"
+                size="sm"
+                onClick={() => handlePrintGOT(viewingDispatch)}
+                icon={<Download className="w-3.5 h-3.5" />}
+              >
+                Print Single GOT
+              </Btn>
+              <Btn
+                variant="primary"
+                size="sm"
+                onClick={() => handleCompleteSaleAndBill(viewingDispatch)}
+                icon={<Receipt className="w-3.5 h-3.5" />}
+              >
+                Complete Sale &amp; Print Bill
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // FINANCE
 // ═══════════════════════════════════════════════════════════
 
@@ -3050,6 +4602,7 @@ function CommandPalette({ open, onClose, setScreen }: {
     { label: "Inventory", hint: "Products & warehouses", screen: "inventory" as Screen, icon: <Package className="w-4 h-4" /> },
     { label: "Sales", hint: "Invoices & POS", screen: "sales" as Screen, icon: <ShoppingCart className="w-4 h-4" /> },
     { label: "Purchasing", hint: "Purchase orders & vendors", screen: "purchase" as Screen, icon: <Truck className="w-4 h-4" /> },
+    { label: "Dispatch", hint: "Gate pass (GOT) & delivery notes", screen: "dispatch" as Screen, icon: <Box className="w-4 h-4" /> },
     { label: "Finance", hint: "P&L, balance sheet, cash flow", screen: "finance" as Screen, icon: <DollarSign className="w-4 h-4" /> },
     { label: "CRM", hint: "Customers & activities", screen: "crm" as Screen, icon: <Users className="w-4 h-4" /> },
     { label: "Reports", hint: "Build & export reports", screen: "reports" as Screen, icon: <FileBarChart className="w-4 h-4" /> },
@@ -3175,6 +4728,7 @@ function MainAppShell() {
       case "inventory": return <InventoryScreen onOpenAddProduct={() => setAddProductModalOpen(true)} onOpenEditProduct={p => setEditingProduct(p)} />;
       case "sales": return <SalesScreen onOpenAddInvoice={() => setAddInvoiceModalOpen(true)} />;
       case "purchase": return <PurchaseScreen onOpenAddPO={() => setAddPOModalOpen(true)} onOpenAddVendor={() => setAddVendorModalOpen(true)} />;
+      case "dispatch": return <DispatchScreen />;
       case "finance": return <FinanceScreen />;
       case "crm": return <CRMScreen onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "reports": return <ReportsScreen />;

@@ -55,6 +55,42 @@ export interface Customer {
   tier: 'enterprise' | 'professional' | 'growth' | string;
 }
 
+export interface DispatchItem {
+  productId: string;
+  sku: string;
+  name: string;
+  dispatchQty: number;
+  availableQty: number;
+  overDispatched: boolean;
+  shortage: number;
+}
+
+export interface DispatchCustomerGroup {
+  id: string;
+  customerName: string;
+  contactPerson?: string;
+  phone?: string;
+  address?: string;
+  items: DispatchItem[];
+}
+
+export interface DispatchRecord {
+  id: string;
+  tokenNo: string;
+  dispatchTo: string;
+  customerGroups?: DispatchCustomerGroup[];
+  address: string;
+  contactPerson: string;
+  phone: string;
+  date: string;
+  time: string;
+  items: DispatchItem[];
+  status: 'pending' | 'dispatched' | 'delivered' | 'cancelled';
+  notes: string;
+  createdBy: string;
+  hasOverDispatch: boolean;
+}
+
 export interface Activity {
   id: number | string;
   type: string;
@@ -161,6 +197,7 @@ interface StockFlowContextType {
   customers: Customer[];
   activities: Activity[];
   notifications: NotificationItem[];
+  dispatches: DispatchRecord[];
   users: UserAccount[];
   currentUser: UserAccount | null;
   isAuthenticated: boolean;
@@ -207,6 +244,9 @@ interface StockFlowContextType {
   deleteCustomer: (id: string) => Promise<void>;
   
   processPOSSale: (cartItems: Array<{ id: string; name: string; price: number; qty: number }>, customerName?: string) => Promise<void>;
+  
+  addDispatch: (record: Omit<DispatchRecord, 'id'>) => void;
+  updateDispatchStatus: (id: string, status: DispatchRecord['status']) => void;
   
   connectSupabaseCredentials: (url: string, key: string) => Promise<boolean>;
   disconnectSupabase: () => void;
@@ -272,6 +312,11 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return isCleanedCheck() ? [] : INITIAL_NOTIFICATIONS;
   });
 
+  const [dispatches, setDispatches] = useState<DispatchRecord[]>(() => {
+    const saved = localStorage.getItem('sf_dispatches');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [users, setUsers] = useState<UserAccount[]>(() => {
     const saved = localStorage.getItem('sf_users');
     return saved ? JSON.parse(saved) : INITIAL_USERS;
@@ -318,6 +363,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => { localStorage.setItem('sf_customers', JSON.stringify(customers)); }, [customers]);
   useEffect(() => { localStorage.setItem('sf_activities', JSON.stringify(activities)); }, [activities]);
   useEffect(() => { localStorage.setItem('sf_notifications', JSON.stringify(notifications)); }, [notifications]);
+  useEffect(() => { localStorage.setItem('sf_dispatches', JSON.stringify(dispatches)); }, [dispatches]);
   useEffect(() => { localStorage.setItem('sf_categories', JSON.stringify(categories)); }, [categories]);
   useEffect(() => { localStorage.setItem('sf_users', JSON.stringify(users)); }, [users]);
 
@@ -866,6 +912,27 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  // DISPATCH ACTIONS
+  const addDispatch = (record: Omit<DispatchRecord, 'id'>) => {
+    const newDispatch: DispatchRecord = {
+      ...record,
+      id: `DSP-${Date.now().toString().slice(-8)}`,
+    };
+    setDispatches(prev => [newDispatch, ...prev]);
+    addActivity('po', 'Dispatch Created', `Token ${newDispatch.tokenNo} dispatched to ${newDispatch.dispatchTo}`);
+    if (newDispatch.hasOverDispatch) {
+      addNotification('alert', 'Over-Dispatch Warning', `Dispatch ${newDispatch.tokenNo} contains items exceeding available stock.`);
+    }
+  };
+
+  const updateDispatchStatus = (id: string, status: DispatchRecord['status']) => {
+    setDispatches(prev => prev.map(d => d.id === id ? { ...d, status } : d));
+    const dispatch = dispatches.find(d => d.id === id);
+    if (dispatch) {
+      addActivity('po', `Dispatch ${status.charAt(0).toUpperCase() + status.slice(1)}`, `Token ${dispatch.tokenNo} marked as ${status}`);
+    }
+  };
+
   const verifyOwnerPasscode = (pass: string): boolean => {
     const clean = pass.trim();
     if (clean === ownerPasscode) return true;
@@ -897,6 +964,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     ]);
     setNotifications([]);
+    setDispatches([]);
 
     localStorage.setItem('sf_products', JSON.stringify([]));
     localStorage.setItem('sf_invoices', JSON.stringify([]));
@@ -905,6 +973,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem('sf_customers', JSON.stringify([]));
     localStorage.setItem('sf_activities', JSON.stringify([]));
     localStorage.setItem('sf_notifications', JSON.stringify([]));
+    localStorage.setItem('sf_dispatches', JSON.stringify([]));
 
     const sb = getSupabase();
     if (sb) {
@@ -982,6 +1051,7 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       customers,
       activities,
       notifications,
+      dispatches,
       users,
       currentUser,
       isAuthenticated,
@@ -1018,6 +1088,8 @@ export const StockFlowProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       updateCustomer,
       deleteCustomer,
       processPOSSale,
+      addDispatch,
+      updateDispatchStatus,
       connectSupabaseCredentials,
       disconnectSupabase,
       refreshData: fetchFromSupabase,
