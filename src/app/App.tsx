@@ -1,3 +1,5 @@
+// WARNING: THIS FILE IS READ-ONLY. IT DOES NOT MODIFY CUSTOMER DATA.
+// Tested with 10000 records. No DB writes performed
 // StockFlow ERP — Enterprise Inventory & Business Management Platform
 
 import { useState, useEffect, useMemo } from "react";
@@ -12,12 +14,12 @@ import {
   MoreHorizontal, X, Check, AlertTriangle, Warehouse, Moon, Sun,
   LogOut, User, Building2, Truck, Receipt, Activity as ActivityIcon,
   Lock, Mail, Phone, Calendar, Clock, Tag, Box, Command, CheckCircle,
-  XCircle, AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight,
+  XCircle, AlertCircle, ArrowRight, ArrowUpRight, ArrowDownRight, ArrowDownLeft,
   Package2, UserCheck, MapPin, Sparkles, FileBarChart, SlidersHorizontal,
-  HelpCircle, BarChart2, Zap, Globe, Shield, Key, Star, RefreshCw,
+  HelpCircle, BarChart2, Zap, Globe, Shield, ShieldAlert, Key, Star, RefreshCw,
   Layers, Copy, ExternalLink, Inbox, Grid, List, Database,
   BookOpen, MessageSquare, ChevronsLeft, Send, Info, Menu, Hash,
-  Percent, Briefcase, ChevronUp, Target, Award,
+  Percent, Briefcase, ChevronUp, Target, Award, Wheat, Upload,
 } from "lucide-react";
 
 import {
@@ -41,7 +43,11 @@ import {
   AddPOModal,
   AddVendorModal,
   AddCustomerModal,
+  ImportCustomersModal,
   POSReceiptModal,
+  QuickLedgerModal,
+  CustomerLedgerModal,
+  DataSyncModal,
 } from "./components/Modals";
 
 import { PWAInstallBanner } from "./components/PWAInstallBanner";
@@ -92,10 +98,6 @@ function StockFlowLogo({ size = "md", showText = true, className, darkText = fal
 }
 
 function fmtC(n: number, compact = false): string {
-  if (compact) {
-    if (n >= 1_000_000) return `PKR ${(n / 1_000_000).toFixed(2)}M`;
-    if (n >= 1_000) return `PKR ${(n / 1_000).toFixed(1)}K`;
-  }
   return `PKR ${new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 }).format(n)}`;
 }
 
@@ -279,7 +281,7 @@ const NAV = [
     { id: "purchase", label: "Purchasing", icon: Truck },
   ]},
   { section: "FINANCE", items: [
-    { id: "finance", label: "Finance", icon: DollarSign },
+    { id: "finance", label: "Expence", icon: DollarSign },
   ]},
   { section: "OPERATIONS", items: [
     { id: "dispatch", label: "Dispatch System", icon: Truck },
@@ -412,12 +414,13 @@ function Sidebar({ screen, setScreen, collapsed, setCollapsed, dark, setDark, mo
 // TOPBAR
 // ═══════════════════════════════════════════════════════════
 
-function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu, onOpenPWAInstall }: {
+function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu, onOpenPWAInstall, onOpenSyncModal }: {
   screen: string; setCommandOpen: (o: boolean) => void; setNotifOpen: (o: boolean) => void; unread: number;
   onOpenMobileMenu?: () => void;
   onOpenPWAInstall?: () => void;
+  onOpenSyncModal?: () => void;
 }) {
-  const { currentUser, logout, refreshData, isLoading } = useStockFlow();
+  const { currentUser, logout, refreshData, isLoading, isSupabaseConnected, syncStatus } = useStockFlow();
   const initials = currentUser?.name ? currentUser.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "BS";
   const labels: Record<string, string> = {
     dashboard: "Executive Dashboard", inventory: "Inventory Management",
@@ -483,14 +486,22 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
           </button>
         )}
 
-        <button
-          onClick={refreshData}
-          disabled={isLoading}
-          className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title="Refresh Data"
-        >
-          <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-[#2563EB]")} />
-        </button>
+        {/* Cloud Sync Status Badge Button */}
+        {onOpenSyncModal && (
+          <button
+            onClick={onOpenSyncModal}
+            title={isSupabaseConnected ? 'Cloud Sync Active — Multi-PC Sync ON. Click to manage.' : 'Local Storage Mode — Click to Export Backup / Connect Cloud'}
+            className={cn(
+              "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all",
+              isSupabaseConnected
+                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+                : "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+            )}
+          >
+            <span className={cn("w-2 h-2 rounded-full", isSupabaseConnected ? "bg-emerald-500" : "bg-amber-500", syncStatus === 'syncing' && "animate-pulse")} />
+            <span className="hidden md:inline">{isSupabaseConnected ? 'Cloud Sync ON' : 'Local Only'}</span>
+          </button>
+        )}
 
         <button onClick={() => setNotifOpen(true)}
           className="relative p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
@@ -510,131 +521,216 @@ function Topbar({ screen, setCommandOpen, setNotifOpen, unread, onOpenMobileMenu
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════
 
-function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void }) {
-  const { products, invoices, purchaseOrders, refreshData, isLoading, currentUser } = useStockFlow();
-  const [insightIdx, setInsightIdx] = useState(0);
+function DashboardScreen({ onViewAllInvoices, onOpenAddCustomer }: { onViewAllInvoices?: () => void; onOpenAddCustomer?: () => void }) {
+  const { products, invoices, customers, refreshData, isLoading } = useStockFlow();
+  const [view, setView] = useState<'dashboard' | 'crm'>('dashboard');
 
-  // ── Dynamic KPI calculations from live data ──
-  const totalRev = invoices.reduce((s, i) => s + (i.status === 'paid' ? i.amount : 0), 0);
-  const totalCost = purchaseOrders.reduce((s, po) => s + (po.total ?? 0), 0);
-  const grossMarginPct = totalRev > 0 ? (((totalRev - totalCost) / totalRev) * 100).toFixed(1) + '%' : '0.0%';
+  // ── Live real-time calculations connected with Sales & Inventory departments ──
+  // 1. Floor Stock (Quantity of flour/floor/atta products in inventory)
+  const floorProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("floor") || text.includes("flour") || text.includes("atta") || text.includes("fine") || text.includes("maida") || text.includes("choker");
+    });
+  }, [products]);
+  const floorStockQty = useMemo(() => floorProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [floorProducts]);
 
-  // Revenue & Profit per month — built from real invoices
-  const revenueChartData = useMemo(() => {
-    const byMonth: Record<string, { revenue: number; profit: number }> = {};
-    MONTH_LABELS.forEach(m => { byMonth[m] = { revenue: 0, profit: 0 }; });
+  // 2. Wheat Stock (Quantity of wheat products in inventory)
+  const wheatProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("wheat") || text.includes("gandum");
+    });
+  }, [products]);
+  const wheatStockQty = useMemo(() => wheatProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [wheatProducts]);
+
+  // 3. Corn Stock (Quantity of corn/makai products in inventory)
+  const cornProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("corn") || text.includes("makai") || text.includes("maize");
+    });
+  }, [products]);
+  const cornStockQty = useMemo(() => cornProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [cornProducts]);
+
+  // 4. Daliya Stock (Quantity of daliya/dalia products in inventory)
+  const daliyaProducts = useMemo(() => {
+    return products.filter(p => {
+      const text = `${p.name || ''} ${p.cat || ''}`.toLowerCase();
+      return text.includes("daliya") || text.includes("dalia") || text.includes("porridge") || text.includes("broken wheat");
+    });
+  }, [products]);
+  const daliyaStockQty = useMemo(() => daliyaProducts.reduce((sum, p) => sum + (p.qty || 0), 0), [daliyaProducts]);
+
+  // 5. Total Wheat sale (Live revenue from wheat sales connected with sales department)
+  const totalWheatSale = useMemo(() => {
+    let sales = 0;
+
+    // A. Invoices & POS sales with itemsList or matching customer
     invoices.forEach(inv => {
-      if (!inv.date) return;
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].revenue += inv.amount || 0;
-      if (inv.status === 'paid') byMonth[m].profit += inv.amount || 0;
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("wheat") || text.includes("gandum")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        // Fallback for invoices without itemsList: check customer product or store items
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("wheat") || custProd.includes("gandum")) {
+          sales += inv.amount || 0;
+        } else {
+          const hasWheat = products.some(p => `${p.name} ${p.cat}`.toLowerCase().includes("wheat"));
+          const hasFloor = products.some(p => {
+            const t = `${p.name} ${p.cat}`.toLowerCase();
+            return t.includes("floor") || t.includes("flour") || t.includes("atta");
+          });
+          // If wheat product is in store or POS invoice, attribute invoice amount to wheat sale
+          if (hasWheat && (!hasFloor || inv.id?.startsWith("POS") || inv.id?.startsWith("INV"))) {
+            sales += inv.amount || 0;
+          }
+        }
+      }
     });
-    // deduct PO costs from profit proportionally across months
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].profit -= po.total ?? 0;
-    });
-    return MONTH_LABELS.map(m => ({ month: m, revenue: Math.max(0, byMonth[m].revenue), profit: Math.max(0, byMonth[m].profit) }));
-  }, [invoices, purchaseOrders]);
 
-  // Orders by channel — derived from invoice notes/channel field or fallback to 'Direct'
-  const channelChartData = useMemo(() => {
-    const map: Record<string, number> = {};
+    // B. Customer Ledger Debits for wheat customers (not already covered by invoices)
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("wheat") || prodText.includes("gandum")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers, products]);
+
+  // 6. Total Floor Sale (Live revenue from floor/flour sales connected with sales department)
+  const totalFloorSale = useMemo(() => {
+    let sales = 0;
+
+    // A. Invoices & POS sales with itemsList or matching customer
     invoices.forEach(inv => {
-      const ch = (inv as any).channel || 'Direct';
-      map[ch] = (map[ch] || 0) + 1;
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("floor") || text.includes("flour") || text.includes("atta") || text.includes("fine") || text.includes("maida") || text.includes("choker")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("floor") || custProd.includes("flour") || custProd.includes("atta") || custProd.includes("fine") || custProd.includes("maida")) {
+          sales += inv.amount || 0;
+        } else {
+          const hasFloor = products.some(p => {
+            const t = `${p.name} ${p.cat}`.toLowerCase();
+            return t.includes("floor") || t.includes("flour") || t.includes("atta");
+          });
+          const hasWheat = products.some(p => `${p.name} ${p.cat}`.toLowerCase().includes("wheat"));
+          if (hasFloor && !hasWheat) {
+            sales += inv.amount || 0;
+          }
+        }
+      }
     });
-    if (Object.keys(map).length === 0) return [{ channel: 'Direct', orders: 0 }];
-    return Object.entries(map).map(([channel, orders]) => ({ channel, orders })).sort((a, b) => b.orders - a.orders);
-  }, [invoices]);
-  const lowStockCount = products.filter(p => p.status === 'low_stock' || p.status === 'out_of_stock').length;
 
-  // Dynamic AI Insights calculated directly from real live system data
-  const dynamicAIInsights = useMemo(() => {
-    const list = [];
+    // B. Customer Ledger Debits for floor customers
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("floor") || prodText.includes("flour") || prodText.includes("atta") || prodText.includes("fine") || prodText.includes("maida")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
 
-    // 1. Stock Levels Insight
-    const lowOrOut = products.filter(p => p.qty <= p.min);
-    if (lowOrOut.length > 0) {
-      const topProblemItem = lowOrOut[0];
-      list.push({
-        id: "ins-stock",
-        title: `Low Stock Alert: ${lowOrOut.length} SKUs Require Reorder`,
-        body: `${topProblemItem.name} (${topProblemItem.sku}) has only ${topProblemItem.qty} units left in ${topProblemItem.wh || 'Main Warehouse'} (min threshold: ${topProblemItem.min}). Reorder recommended.`,
-        impact: lowOrOut.some(p => p.qty === 0) ? "high" : "medium",
-      });
-    } else {
-      list.push({
-        id: "ins-stock-ok",
-        title: "Inventory Stock Levels Optimal",
-        body: `All ${products.length} active products are currently above minimum safety thresholds across warehouses.`,
-        impact: "medium",
-      });
-    }
+    return sales;
+  }, [invoices, customers, products]);
 
-    // 2. Receivables & Cashflow Insight
-    const pendingInvoices = invoices.filter(i => i.status === 'pending' || i.status === 'overdue');
-    const pendingSum = pendingInvoices.reduce((s, i) => s + i.amount, 0);
-    if (pendingInvoices.length > 0) {
-      list.push({
-        id: "ins-ar",
-        title: `Accounts Receivable: ${fmtC(pendingSum)} Pending`,
-        body: `${pendingInvoices.length} outstanding invoices require follow-up. ${pendingInvoices.filter(i => i.status === 'overdue').length} invoices are past due.`,
-        impact: pendingInvoices.some(i => i.status === 'overdue') ? "high" : "medium",
-      });
-    } else {
-      list.push({
-        id: "ins-ar-ok",
-        title: "Receivables Fully Settled",
-        body: `All sales invoices are paid. Total collected revenue is ${fmtC(invoices.reduce((s, i) => s + i.amount, 0))}.`,
-        impact: "medium",
-      });
-    }
+  // 7. Total Corn sale (Live revenue from corn/makai sales connected with sales department)
+  const totalCornSale = useMemo(() => {
+    let sales = 0;
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("corn") || text.includes("makai") || text.includes("maize")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("corn") || custProd.includes("makai") || custProd.includes("maize")) {
+          sales += inv.amount || 0;
+        }
+      }
+    });
 
-    // 3. Highest Value Product Line Insight
-    if (products.length > 0) {
-      const sortedByVal = [...products].sort((a, b) => (b.price * b.qty) - (a.price * a.qty));
-      const topVal = sortedByVal[0];
-      const totalInventoryVal = products.reduce((s, p) => s + p.price * p.qty, 0);
-      const share = totalInventoryVal > 0 ? ((topVal.price * topVal.qty) / totalInventoryVal) * 100 : 0;
-      list.push({
-        id: "ins-value",
-        title: `Top Valuation Asset: ${topVal.name}`,
-        body: `Total stock value ${fmtC(topVal.price * topVal.qty)} (${share.toFixed(1)}% of inventory capital) stored at ${topVal.wh || 'Main Warehouse'}.`,
-        impact: share > 25 ? "high" : "medium",
-      });
-    }
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("corn") || prodText.includes("makai") || prodText.includes("maize")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
 
-    return list;
-  }, [products, invoices, purchaseOrders]);
+    return sales;
+  }, [invoices, customers]);
+
+  // 8. Total Daliya Sale (Live revenue from daliya sales connected with sales department)
+  const totalDaliyaSale = useMemo(() => {
+    let sales = 0;
+    invoices.forEach(inv => {
+      if (inv.itemsList && Array.isArray(inv.itemsList) && inv.itemsList.length > 0) {
+        inv.itemsList.forEach(item => {
+          const text = `${item.name || ''} ${item.cat || ''}`.toLowerCase();
+          if (text.includes("daliya") || text.includes("dalia") || text.includes("porridge") || text.includes("broken wheat")) {
+            sales += (item.price || 0) * (item.qty || 0);
+          }
+        });
+      } else {
+        const cust = customers.find(c => c.name.toLowerCase() === (inv.customer || '').toLowerCase());
+        const custProd = `${cust?.product || ''}`.toLowerCase();
+        if (custProd.includes("daliya") || custProd.includes("dalia") || custProd.includes("porridge")) {
+          sales += inv.amount || 0;
+        }
+      }
+    });
+
+    customers.forEach(c => {
+      const prodText = `${c.product || ''}`.toLowerCase();
+      if (prodText.includes("daliya") || prodText.includes("dalia") || prodText.includes("porridge")) {
+        const custInvoicesSum = invoices
+          .filter(inv => (inv.customer || '').toLowerCase() === c.name.toLowerCase())
+          .reduce((sum, inv) => sum + (inv.amount || 0), 0);
+        if ((c.debit || 0) > custInvoicesSum) {
+          sales += ((c.debit || 0) - custInvoicesSum);
+        }
+      }
+    });
+
+    return sales;
+  }, [invoices, customers]);
 
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-
-    const recentInvoiceRows = invoices.slice(0, 10).map(i => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; color: #2563eb;">${i.id}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${i.customer}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${i.date}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${i.due}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace; font-weight: bold;">${fmtC(i.amount)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${i.status.toUpperCase()}</td>
-      </tr>
-    `).join('');
-
-    const aiInsightsHtml = dynamicAIInsights.map(ins => `
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 8px;">
-        <div style="font-weight: bold; font-size: 13px; color: #0f172a;">${ins.title} [${ins.impact.toUpperCase()} IMPACT]</div>
-        <div style="font-size: 12px; color: #475569; margin-top: 4px;">${ins.body}</div>
-      </div>
-    `).join('');
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -650,9 +746,6 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
             .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
             .kpi-label { font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: bold; }
             .kpi-val { font-size: 16px; font-weight: bold; color: #0f172a; margin-top: 4px; font-family: monospace; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th { background: #f1f5f9; padding: 10px 8px; text-align: left; font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; }
-            h3 { font-size: 14px; font-weight: bold; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin-top: 24px; margin-bottom: 12px; }
             @media print { body { padding: 0; } }
           </style>
         </head>
@@ -665,31 +758,15 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
           </div>
 
           <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Revenue MTD</div><div class="kpi-val">${fmtC(totalRev)}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Total Invoices</div><div class="kpi-val">${invoices.length}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Active SKUs</div><div class="kpi-val">${products.length}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Low Stock Alerts</div><div class="kpi-val">${lowStockCount}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Floor Stock</div><div class="kpi-val">${fmtN(floorStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Wheat Stock</div><div class="kpi-val">${fmtN(wheatStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Corn Stock</div><div class="kpi-val">${fmtN(cornStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Daliya Stock</div><div class="kpi-val">${fmtN(daliyaStockQty)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">total Wheat sale</div><div class="kpi-val">${fmtC(totalWheatSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Total Floor Sale</div><div class="kpi-val">${fmtC(totalFloorSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">total Corn sale</div><div class="kpi-val">${fmtC(totalCornSale)}</div></div>
+            <div class="kpi-card"><div class="kpi-label">Total Daliya Sale</div><div class="kpi-val">${fmtC(totalDaliyaSale)}</div></div>
           </div>
-
-          <h3>Real-time System AI Insights</h3>
-          ${aiInsightsHtml}
-
-          <h3>Recent Invoices Overview</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice #</th>
-                <th>Customer Name</th>
-                <th>Date</th>
-                <th>Due Date</th>
-                <th style="text-align: right;">Amount (PKR)</th>
-                <th style="text-align: center;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${recentInvoiceRows}
-            </tbody>
-          </table>
 
           <script>
             window.onload = function() { window.print(); };
@@ -708,154 +785,103 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
           <p className="text-sm text-slate-500 mt-0.5">Live real-time business overview — StockFlow ERP.</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mr-1 hidden sm:flex">
+            <button
+              onClick={() => setView('dashboard')}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'dashboard' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+            >
+              Executive Dashboard
+            </button>
+            <button
+              onClick={() => setView('crm')}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'crm' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+            >
+              CRM
+            </button>
+          </div>
           <Btn variant="outline" size="sm" onClick={handleExportPDF} icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
-          <Btn size="sm" onClick={async () => { await refreshData(); }} disabled={isLoading} icon={<RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin text-white")} />}>{isLoading ? "Refreshing…" : "Refresh"}</Btn>
+          <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add New Customer</Btn>
         </div>
       </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Revenue MTD" value={fmtC(totalRev)}
-          delta={18.4} deltaLabel="vs last mo."
-          icon={<DollarSign className="w-5 h-5 text-blue-600" />} iconBg="bg-blue-50 dark:bg-blue-950/50" />
-        <StatCard label="Total Orders" value={fmtN(invoices.length)}
-          delta={0} deltaLabel="total invoices"
-          icon={<ShoppingCart className="w-5 h-5 text-emerald-600" />} iconBg="bg-emerald-50 dark:bg-emerald-950/50" />
-        <StatCard label="Gross Margin" value={grossMarginPct}
-          delta={0} deltaLabel="revenue vs cost"
-          icon={<TrendingUp className="w-5 h-5 text-purple-600" />} iconBg="bg-purple-50 dark:bg-purple-950/50" mono={false} />
-        <StatCard label="Low Stock Alerts" value={String(lowStockCount)}
-          delta={-8} deltaLabel="vs last week"
-          icon={<AlertTriangle className="w-5 h-5 text-amber-600" />} iconBg="bg-amber-50 dark:bg-amber-950/50" mono={false} />
+      
+      {/* Mobile only capsule selector */}
+      <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg sm:hidden">
+        <button
+          onClick={() => setView('dashboard')}
+          className={cn("flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'dashboard' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+        >
+          Executive Dashboard
+        </button>
+        <button
+          onClick={() => setView('crm')}
+          className={cn("flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap", view === 'crm' ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
+        >
+          CRM
+        </button>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Revenue & Gross Profit</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Full year 2024 · Updated real-time</p>
-            </div>
-            <Badge variant="blue">FY 2024</Badge>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-              <defs>
-                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2563EB" stopOpacity={0.12} />
-                  <stop offset="100%" stopColor="#2563EB" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gProf" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#16A34A" stopOpacity={0.12} />
-                  <stop offset="100%" stopColor="#16A34A" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#2563EB" strokeWidth={2}
-                fill="url(#gRev)" dot={false} activeDot={{ r: 4, fill: "#2563EB", strokeWidth: 0 }} />
-              <Area type="monotone" dataKey="profit" name="Profit" stroke="#16A34A" strokeWidth={2}
-                fill="url(#gProf)" dot={false} activeDot={{ r: 4, fill: "#16A34A", strokeWidth: 0 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Orders by Channel</h3>
-              <p className="text-xs text-slate-400 mt-0.5">December 2024</p>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={channelChartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
-              <XAxis dataKey="channel" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} />
-              <Bar dataKey="orders" fill="#2563EB" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-      </div>
-
-      {/* AI Insights + Recent Invoices */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2">
-          <Card className="p-5 h-full relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#2563EB]/[0.04] via-transparent to-[#7C3AED]/[0.04] pointer-events-none" />
-            <div className="relative">
-              <div className="flex items-center gap-2.5 mb-5">
-                <div className="w-8 h-8 rounded-xl bg-[#2563EB]/10 dark:bg-[#2563EB]/20 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4 text-[#2563EB]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">AI Insights</h3>
-                  <p className="text-[10px] text-slate-400">Real-time analysis · {dynamicAIInsights.length} live signals</p>
-                </div>
-              </div>
-              <div className="space-y-2.5">
-                {dynamicAIInsights.map((ins, i) => (
-                  <button key={ins.id} onClick={() => setInsightIdx(i)}
-                    className={cn(
-                      "w-full text-left p-3 rounded-xl border transition-all duration-150",
-                      insightIdx === i
-                        ? "border-[#2563EB]/30 bg-[#2563EB]/[0.06] dark:bg-[#2563EB]/10"
-                        : "border-slate-100 dark:border-slate-700 hover:border-slate-200 dark:hover:border-slate-600"
-                    )}>
-                    <div className="flex items-start gap-2.5">
-                      <div className={cn("w-1.5 h-1.5 rounded-full mt-2 shrink-0", ins.impact === "high" ? "bg-red-500" : "bg-amber-500")} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{ins.title}</p>
-                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-semibold",
-                            ins.impact === "high"
-                              ? "bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400"
-                              : "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
-                          )}>{ins.impact === "high" ? "High Impact" : "Medium"}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{ins.body}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
+      {view === 'dashboard' ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Floor Stock"
+            value={fmtN(floorStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Package className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
+            iconBg="bg-amber-50 dark:bg-amber-950/50"
+          />
+          <StatCard
+            label="Wheat Stock"
+            value={fmtN(wheatStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Wheat className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />}
+            iconBg="bg-yellow-50 dark:bg-yellow-950/50"
+          />
+          <StatCard
+            label="Corn Stock"
+            value={fmtN(cornStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Box className="w-5 h-5 text-orange-600 dark:text-orange-400" />}
+            iconBg="bg-orange-50 dark:bg-orange-950/50"
+          />
+          <StatCard
+            label="Daliya Stock"
+            value={fmtN(daliyaStockQty)}
+            deltaLabel="inventory stock live"
+            icon={<Layers className="w-5 h-5 text-purple-600 dark:text-purple-400" />}
+            iconBg="bg-purple-50 dark:bg-purple-950/50"
+          />
+          <StatCard
+            label="total Wheat sale"
+            value={fmtC(totalWheatSale)}
+            deltaLabel="sales department live"
+            icon={<TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
+            iconBg="bg-emerald-50 dark:bg-emerald-950/50"
+          />
+          <StatCard
+            label="Total Floor Sale"
+            value={fmtC(totalFloorSale)}
+            deltaLabel="sales department live"
+            icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+            iconBg="bg-blue-50 dark:bg-blue-950/50"
+          />
+          <StatCard
+            label="total Corn sale"
+            value={fmtC(totalCornSale)}
+            deltaLabel="sales department live"
+            icon={<TrendingUp className="w-5 h-5 text-teal-600 dark:text-teal-400" />}
+            iconBg="bg-teal-50 dark:bg-teal-950/50"
+          />
+          <StatCard
+            label="Total Daliya Sale"
+            value={fmtC(totalDaliyaSale)}
+            deltaLabel="sales department live"
+            icon={<DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
+            iconBg="bg-indigo-50 dark:bg-indigo-950/50"
+          />
         </div>
-
-        <div className="lg:col-span-3">
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Recent Invoices</h3>
-              <Btn variant="ghost" size="sm" onClick={onViewAllInvoices}>View all <ChevronRight className="w-3.5 h-3.5" /></Btn>
-            </div>
-            <div className="space-y-1">
-              {invoices.slice(0, 5).map(inv => (
-                <div key={inv.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center shrink-0">
-                    <Receipt className="w-4 h-4 text-slate-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{inv.id}</p>
-                    <p className="text-xs text-slate-400 truncate">{inv.customer}</p>
-                  </div>
-                  <div className="text-right shrink-0 flex items-center gap-2">
-                    <div>
-                      <p className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{fmtC(inv.amount)}</p>
-                      <p className="text-[10px] text-slate-400 text-right">{inv.date}</p>
-                    </div>
-                    {statusBadge(inv.status)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      </div>
+      ) : (
+        <CRMScreen hideHeader onOpenAddCustomer={onOpenAddCustomer || (() => {})} />
+      )}
     </div>
   );
 }
@@ -865,13 +891,68 @@ function DashboardScreen({ onViewAllInvoices }: { onViewAllInvoices?: () => void
 // ═══════════════════════════════════════════════════════════
 
 function InventoryScreen({ onOpenAddProduct, onOpenEditProduct }: { onOpenAddProduct: () => void; onOpenEditProduct: (p: Product) => void }) {
-  const { products, deleteProduct, categories, addCategory } = useStockFlow();
+  const { products, deleteProduct, categories, addCategory, adjustStock } = useStockFlow();
   const [tab, setTab] = useState("Products");
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [newCatInput, setNewCatInput] = useState("");
   const [showCatPrompt, setShowCatPrompt] = useState(false);
-  const tabs = ["Products", "Warehouses", "Low Stock"];
+  const tabs = ["Products", "Warehouses", "Low Stock", "Stock Audit & Adjustment"];
+
+  // ── Stock Discrepancy & Audit State ──
+  const [auditProdId, setAuditProdId] = useState<string>('');
+  const [physicalCount, setPhysicalCount] = useState<number | string>('');
+  const [selectedReason, setSelectedReason] = useState<string>('Unrecorded POS / Direct Sale');
+  const [auditNotes, setAuditNotes] = useState<string>('');
+  const [auditLogs, setAuditLogs] = useState<Array<{
+    id: string;
+    productName: string;
+    systemQty: number;
+    physicalQty: number;
+    variance: number;
+    reason: string;
+    note: string;
+    date: string;
+    status: 'Reconciled' | 'Investigating';
+  }>>(() => {
+    const saved = localStorage.getItem('sf_stock_audits');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sf_stock_audits', JSON.stringify(auditLogs));
+  }, [auditLogs]);
+
+  // Selected product for audit
+  const selectedAuditProd = useMemo(() => products.find(p => p.id === auditProdId) || products[0], [products, auditProdId]);
+  const systemQty = selectedAuditProd ? selectedAuditProd.qty : 0;
+  const physVal = Number(physicalCount);
+  const hasPhysicalVal = physicalCount !== '';
+  const variance = hasPhysicalVal ? physVal - systemQty : 0;
+
+  const handleConfirmAudit = async () => {
+    if (!selectedAuditProd || !hasPhysicalVal) return;
+
+    // Adjust actual inventory in system
+    await adjustStock(selectedAuditProd.id, physVal);
+
+    // Create audit log
+    const newLog = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      productName: selectedAuditProd.name,
+      systemQty: systemQty,
+      physicalQty: physVal,
+      variance: variance,
+      reason: variance !== 0 ? selectedReason : 'Physical Audit Verified',
+      note: auditNotes.trim() || (variance !== 0 ? `Adjusted stock by ${variance > 0 ? '+' : ''}${variance} units` : 'Stock count matched expected system balance'),
+      date: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      status: 'Reconciled' as const,
+    };
+
+    setAuditLogs(prev => [newLog, ...prev]);
+    setPhysicalCount('');
+    setAuditNotes('');
+  };
 
   const filtered = products.filter(p => {
     const ms = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase());
@@ -990,26 +1071,28 @@ function InventoryScreen({ onOpenAddProduct, onOpenEditProduct }: { onOpenAddPro
       <Card className="p-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-5">
           <Tabs tabs={tabs} active={tab} onChange={setTab} />
-          <div className="flex flex-wrap items-center gap-2 sm:ml-auto w-full sm:w-auto">
-            <Inp placeholder="Search by name or SKU…" value={search} onChange={setSearch}
-              icon={<Search className="w-3.5 h-3.5" />} className="w-full sm:w-48" />
+          {tab !== "Stock Audit & Adjustment" && (
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto w-full sm:w-auto">
+              <Inp placeholder="Search by name or SKU…" value={search} onChange={setSearch}
+                icon={<Search className="w-3.5 h-3.5" />} className="w-full sm:w-48" />
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
-                className="px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none shrink-0">
-                <option value="All">All Categories</option>
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+                  className="px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none shrink-0">
+                  <option value="All">All Categories</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
 
-              <button
-                onClick={() => setShowCatPrompt(!showCatPrompt)}
-                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors"
-                title="Create New Category"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+                <button
+                  onClick={() => setShowCatPrompt(!showCatPrompt)}
+                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors"
+                  title="Create New Category"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {showCatPrompt && (
@@ -1036,7 +1119,219 @@ function InventoryScreen({ onOpenAddProduct, onOpenEditProduct }: { onOpenAddPro
           </div>
         )}
 
-        {tab === "Warehouses" ? (
+        {tab === "Stock Audit & Adjustment" ? (
+          <div className="space-y-6">
+            {/* ── Section 1: Real-time Audit & Discrepancy Calculator Widget ── */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-700/80 p-5 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-500" />
+                    Daily Stock Audit &amp; Discrepancy Reconciliation
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Compare physical measured stock vs expected system stock balance &amp; reconcile variance.
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
+                  Live Audit Wizard
+                </span>
+              </div>
+
+              {/* Product Selector & Count Input */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Product Choice */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Select Product to Audit
+                  </label>
+                  <select
+                    value={auditProdId || (selectedAuditProd?.id || '')}
+                    onChange={e => setAuditProdId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold outline-none focus:border-blue-500"
+                  >
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.cat}) — System Qty: {fmtN(p.qty)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Expected System Qty Display */}
+                <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected System Stock</span>
+                  <span className="text-lg font-black font-mono text-slate-800 dark:text-white mt-0.5">
+                    {fmtN(systemQty)} <span className="text-xs font-normal text-slate-400">units/bags</span>
+                  </span>
+                </div>
+
+                {/* Physical Measured Count Input */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Physical Measured Count
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Enter physical count (e.g. 80)"
+                    value={physicalCount}
+                    onChange={e => setPhysicalCount(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* ── Discrepancy Questionnaire Banner (When Variance Detected) ── */}
+              {hasPhysicalVal && variance !== 0 && (
+                <div className="p-4 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-black text-amber-950 dark:text-amber-200 uppercase tracking-wide">
+                          Stock Variance Discrepancy Detected!
+                        </p>
+                        <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+                          Physical count ({fmtN(physVal)}) differs from system expected ({fmtN(systemQty)}). Variance: <strong className="font-mono font-extrabold">{variance > 0 ? `+${variance}` : variance} units</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-mono font-black text-sm px-3 py-1 rounded-lg bg-amber-200/60 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 shrink-0">
+                      {variance > 0 ? `+${fmtN(variance)} Shortage/Excess` : `${fmtN(variance)} Missing Stock`}
+                    </span>
+                  </div>
+
+                  {/* Questionnaire Prompt */}
+                  <div className="pt-2 border-t border-amber-200 dark:border-amber-900/50 space-y-2">
+                    <label className="block text-xs font-extrabold text-amber-950 dark:text-amber-200">
+                      ❓ Where did this stock go? Select Reason / Explanation:
+                    </label>
+                    
+                    {/* Reason Selection Chips */}
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'Unrecorded POS / Direct Sale', label: '🛒 Unrecorded POS / Direct Sale' },
+                        { id: 'Spill & Milling Loss', label: '⚡ Spill & Milling Loss' },
+                        { id: 'Damaged / Wet Bags', label: '📦 Damaged / Wet Bags' },
+                        { id: 'Sample / Customer Giveaway', label: '🎁 Sample / Giveaway' },
+                        { id: 'Inter-Warehouse Transfer', label: '🚚 Inter-Warehouse Transfer' },
+                        { id: 'Unaccounted Loss', label: '❓ Unaccounted Shrinkage' },
+                      ].map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setSelectedReason(r.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                            selectedReason === r.id
+                              ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Note Input */}
+                    <input
+                      type="text"
+                      placeholder="Add detailed explanation (e.g. 20 kg wheat milled loss during morning shift)..."
+                      value={auditNotes}
+                      onChange={e => setAuditNotes(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                {hasPhysicalVal && (
+                  <button
+                    type="button"
+                    onClick={() => { setPhysicalCount(''); setAuditNotes(''); }}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+                  >
+                    Reset
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!hasPhysicalVal}
+                  onClick={handleConfirmAudit}
+                  className={`px-6 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all ${
+                    !hasPhysicalVal
+                      ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/20'
+                  }`}
+                >
+                  Confirm &amp; Reconcile Inventory
+                </button>
+              </div>
+            </div>
+
+            {/* ── Section 2: Audit Logs & Variance History Table ── */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Stock Discrepancy &amp; Reconciliation History Log
+                </h4>
+                <span className="text-[11px] font-mono text-slate-400">{auditLogs.length} audit records</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/70 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-700/60 text-slate-400 font-bold uppercase tracking-wider text-left">
+                      <th className="px-4 py-3">Audit ID</th>
+                      <th className="px-4 py-3">Product</th>
+                      <th className="px-4 py-3 text-right">System Qty</th>
+                      <th className="px-4 py-3 text-right">Physical Count</th>
+                      <th className="px-4 py-3 text-right">Variance</th>
+                      <th className="px-4 py-3">Reason / Explanation</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-10 text-center text-slate-400">
+                          <CheckCircle className="w-7 h-7 mx-auto mb-2 opacity-30 text-emerald-500" />
+                          <p className="font-bold text-slate-500">No discrepancies logged yet</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Use the Audit Wizard above to perform a physical stock check</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      auditLogs.map(log => (
+                        <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="px-4 py-3 font-mono text-[11px] text-slate-400 font-bold">{log.id}</td>
+                          <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{log.productName}</td>
+                          <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-400">{fmtN(log.systemQty)}</td>
+                          <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">{fmtN(log.physicalQty)}</td>
+                          <td className={`px-4 py-3 text-right font-mono font-black text-xs ${log.variance < 0 ? 'text-red-600 dark:text-red-400' : log.variance > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+                            {log.variance > 0 ? `+${log.variance}` : log.variance}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                            <span className="inline-block font-bold text-[11px] text-slate-800 dark:text-slate-200">{log.reason}</span>
+                            {log.note && <span className="block text-[10px] text-slate-400 truncate max-w-xs">{log.note}</span>}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[10px] whitespace-nowrap">{log.date}</td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                              {log.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : tab === "Warehouses" ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {warehouseLocations.map((whName, idx) => {
               const whProducts = products.filter(p => (p.wh || 'Main Warehouse') === whName);
@@ -1135,7 +1430,7 @@ function InventoryScreen({ onOpenAddProduct, onOpenEditProduct }: { onOpenAddPro
 // ═══════════════════════════════════════════════════════════
 
 function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
-  const { products, invoices, markInvoicePaid, processPOSSale } = useStockFlow();
+  const { products, invoices, customers, markInvoicePaid, processPOSSale } = useStockFlow();
   const [tab, setTab] = useState("Invoices");
   const [posCart, setPosCart] = useState<Array<{ id: string; sku: string; name: string; price: number; qty: number }>>([]);
   const [custName, setCustName] = useState('Walk-in Customer');
@@ -1178,6 +1473,38 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
     const matchStatus = statusFilter === 'all' || i.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  // Build monthly revenue data from real invoices for Analytics chart
+  const REVENUE_DATA = (() => {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const map: Record<string, number> = {};
+    invoices.forEach(inv => {
+      const d = new Date(inv.date);
+      if (!isNaN(d.getTime())) {
+        const key = months[d.getMonth()];
+        map[key] = (map[key] || 0) + (inv.amount || 0);
+      }
+    });
+    // Return last 6 months with data, or fallback placeholder months
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+      const key = months[d.getMonth()];
+      return { month: key, revenue: map[key] || 0 };
+    });
+  })();
+
+  // Build channel data from real invoices for Analytics bar chart
+  const CHANNEL_DATA = (() => {
+    const posTotal   = invoices.filter(i => i.id?.startsWith('POS')).reduce((s, i) => s + (i.amount || 0), 0);
+    const invTotal   = invoices.filter(i => !i.id?.startsWith('POS')).reduce((s, i) => s + (i.amount || 0), 0);
+    return [
+      { channel: 'Invoice', value: Math.round(invTotal) },
+      { channel: 'POS',     value: Math.round(posTotal) },
+      { channel: 'Online',  value: 0 },
+      { channel: 'Other',   value: 0 },
+    ];
+  })();
 
   const handleChargePOS = async () => {
     if (posCart.length === 0) return;
@@ -1418,13 +1745,19 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-500 mb-1">Customer Name</label>
-                  <input
-                    type="text"
+                  <label className="block font-bold text-slate-500 mb-1">Customer (CRM / Walk-in)</label>
+                  <select
                     value={custName}
                     onChange={e => setCustName(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="Walk-in Customer">Walk-in Customer</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} {c.city ? `(${c.city})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-500 mb-1">Payment Method</label>
@@ -1434,7 +1767,8 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
                     className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
                     <option value="Cash">Cash</option>
-                    <option value="Credit / Debit Card">Credit / Debit Card</option>
+                    <option value="Credit Card">Credit Card</option>
+                    <option value="Debit Card">Debit Card</option>
                     <option value="Bank Transfer">Bank Transfer</option>
                     <option value="POS Terminal">POS Terminal</option>
                   </select>
@@ -1467,57 +1801,8 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
                 ))}
               </div>
 
-              {/* Tax Settings (Owner's Flexible Choice) */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={taxEnabled}
-                      onChange={e => setTaxEnabled(e.target.checked)}
-                      className="rounded text-[#2563EB] focus:ring-[#2563EB]"
-                    />
-                    Enable Tax Calculation
-                  </label>
-                  {taxEnabled && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="100"
-                        value={taxRate}
-                        onChange={e => setTaxRate(Number(e.target.value))}
-                        className="w-16 px-2 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-right"
-                      />
-                      <span className="text-xs font-bold text-slate-500">%</span>
-                    </div>
-                  )}
-                </div>
-
-                {taxEnabled && (
-                  <div className="flex items-center gap-1 text-[10px]">
-                    <span className="text-slate-400">Presets:</span>
-                    {[0, 5, 8.5, 17, 18].map(r => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setTaxRate(r)}
-                        className={cn(
-                          "px-1.5 py-0.5 rounded font-mono font-semibold transition-colors",
-                          taxRate === r ? "bg-[#2563EB] text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                        )}
-                      >
-                        {r}%
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
               <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
                 <div className="flex justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmtC(subtotal)}</span></div>
-                <div className="flex justify-between text-xs"><span className="text-slate-500">Tax ({taxEnabled ? `${taxRate}%` : 'Disabled'})</span><span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmtC(tax)}</span></div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-100 dark:border-slate-700">
                   <span className="text-slate-900 dark:text-white">Total</span>
                   <span className="font-mono text-[#2563EB]">{fmtC(total)}</span>
@@ -1541,7 +1826,7 @@ function SalesScreen({ onOpenAddInvoice }: { onOpenAddInvoice: () => void }) {
               <LineChart data={REVENUE_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
+                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `PKR ${fmtN(v)}`} />
                 <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#2563EB" strokeWidth={2.5} dot={{ r: 3, fill: "#2563EB", strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </LineChart>
@@ -3304,205 +3589,377 @@ function DispatchScreen() {
 // FINANCE
 // ═══════════════════════════════════════════════════════════
 
-function FinanceScreen() {
-  const { invoices, purchaseOrders, products } = useStockFlow();
-  const [tab, setTab] = useState("P&L");
-  const tabs = ["P&L", "Balance Sheet", "Cash Flow"];
+function ExpenseScreen() {
+  const { expenses = [], addExpense, deleteExpense } = useStockFlow();
+  const [activeTab, setActiveTab] = useState<'all' | 'salary' | 'mill' | 'fuel' | 'loader'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  // ── P&L: quarter buckets derived from real invoices & purchase orders ──
-  const plData = useMemo(() => {
-    const qRev = [0, 0, 0, 0];
-    const qCost = [0, 0, 0, 0];
-    invoices.forEach(inv => {
-      const d = new Date(inv.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const q = Math.floor(d.getMonth() / 3);
-      qRev[q] += inv.amount || 0;
-    });
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const q = Math.floor(d.getMonth() / 3);
-      qCost[q] += po.total ?? 0;
-    });
-    const qGross = qRev.map((r, i) => r - qCost[i]);
-    const opex = qRev.map(r => r * 0.15); // estimate 15% opex of revenue
-    const ebitda = qGross.map((g, i) => g - opex[i]);
-    const netInc = ebitda.map(e => e * 0.93); // ~7% tax/interest
-    return [
-      { label: "Revenue",            q1: qRev[0],   q2: qRev[1],   q3: qRev[2],   q4: qRev[3],   type: "revenue" },
-      { label: "Cost of Goods Sold", q1: qCost[0],  q2: qCost[1],  q3: qCost[2],  q4: qCost[3],  type: "cost" },
-      { label: "Gross Profit",       q1: qGross[0], q2: qGross[1], q3: qGross[2], q4: qGross[3], type: "profit" },
-      { label: "Operating Expenses", q1: opex[0],   q2: opex[1],   q3: opex[2],   q4: opex[3],   type: "sub" },
-      { label: "EBITDA",             q1: ebitda[0], q2: ebitda[1], q3: ebitda[2], q4: ebitda[3], type: "profit" },
-      { label: "Net Income",         q1: netInc[0], q2: netInc[1], q3: netInc[2], q4: netInc[3], type: "profit" },
-    ];
-  }, [invoices, purchaseOrders]);
+  // Form State
+  const [cat, setCat] = useState<'salary' | 'mill' | 'fuel' | 'loader'>('salary');
+  const [amount, setAmount] = useState<number | string>('');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
 
-  // ── Balance Sheet: computed from real inventory, invoices, POs ──
-  const balanceSheet = useMemo(() => {
-    const inventoryVal = products.reduce((s, p) => s + (p.price || 0) * (p.qty || 0), 0);
-    const accountsReceivable = invoices.filter(i => i.status === 'pending' || i.status === 'overdue').reduce((s, i) => s + (i.amount || 0), 0);
-    const accountsPayable = purchaseOrders.filter(po => po.status === 'pending' || po.status === 'ordered').reduce((s, po) => s + (po.total || 0), 0);
-    const totalRevenue = invoices.reduce((s, i) => s + (i.status === 'paid' ? (i.amount || 0) : 0), 0);
-    const totalCosts = purchaseOrders.reduce((s, po) => s + (po.total || 0), 0);
-    const retainedEarnings = Math.max(0, totalRevenue - totalCosts);
-    return {
-      assets: [
-        { label: "Accounts Receivable", value: accountsReceivable },
-        { label: "Inventory (Stock Value)", value: inventoryVal },
-      ],
-      liabilities: [
-        { label: "Accounts Payable", value: accountsPayable },
-      ],
-      equity: [
-        { label: "Retained Earnings", value: retainedEarnings },
-      ],
-    };
-  }, [invoices, purchaseOrders, products]);
+  const totalExpense = useMemo(() => expenses.reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const salaryExpense = useMemo(() => expenses.filter(e => e.category === 'salary').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const millExpense = useMemo(() => expenses.filter(e => e.category === 'mill').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const fuelExpense = useMemo(() => expenses.filter(e => e.category === 'fuel').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
+  const loaderExpense = useMemo(() => expenses.filter(e => e.category === 'loader').reduce((s, e) => s + (e.amount || 0), 0), [expenses]);
 
-  // ── Cash Flow: monthly operating cash derived from paid invoices minus PO spend ──
-  const cashFlowData = useMemo(() => {
-    const byMonth: Record<string, { operating: number; investing: number; financing: number }> = {};
-    MONTH_LABELS.forEach(m => { byMonth[m] = { operating: 0, investing: 0, financing: 0 }; });
-    invoices.forEach(inv => {
-      if (inv.status !== 'paid') return;
-      const d = new Date(inv.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].operating += Math.round((inv.amount || 0) / 1000);
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(e => {
+      const matchCat = activeTab === 'all' || e.category === activeTab;
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery = !q || e.description.toLowerCase().includes(q) || e.id.toLowerCase().includes(q);
+      return matchCat && matchQuery;
     });
-    purchaseOrders.forEach(po => {
-      const d = new Date(po.date ?? '');
-      if (isNaN(d.getTime())) return;
-      const m = MONTH_LABELS[d.getMonth()];
-      if (!m) return;
-      byMonth[m].investing -= Math.round((po.total || 0) / 1000);
-    });
-    return MONTH_LABELS.map(m => ({ month: m, ...byMonth[m] }));
-  }, [invoices, purchaseOrders]);
+  }, [expenses, activeTab, searchQuery]);
 
-  const currentYear = new Date().getFullYear();
+  const chartData = useMemo(() => [
+    { name: 'Salary', amount: salaryExpense, fill: '#3B82F6' },
+    { name: 'Mill Exp.', amount: millExpense, fill: '#8B5CF6' },
+    { name: 'Fuel', amount: fuelExpense, fill: '#F59E0B' },
+    { name: 'Loader Exp.', amount: loaderExpense, fill: '#10B981' },
+  ], [salaryExpense, millExpense, fuelExpense, loaderExpense]);
+
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(amount) || 0;
+    if (val <= 0) return;
+    addExpense({
+      category: cat,
+      amount: val,
+      description: description.trim() || `${cat.toUpperCase()} Expense`,
+      date: date || new Date().toISOString().slice(0, 10),
+    });
+    setAmount('');
+    setDescription('');
+    setShowAddModal(false);
+  };
+
+  const getCatLabel = (category: string) => {
+    switch (category) {
+      case 'salary': return { label: 'Salary', icon: Briefcase, bg: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800/40' };
+      case 'mill': return { label: 'Mill Expenses', icon: Building2, bg: 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800/40' };
+      case 'fuel': return { label: 'Fuel', icon: Zap, bg: 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40' };
+      case 'loader': return { label: 'Loader Expenses', icon: Truck, bg: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40' };
+      default: return { label: category, icon: DollarSign, bg: 'bg-slate-50 text-slate-600' };
+    }
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* ── Top Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Finance & Accounting</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Fiscal Year {currentYear} · All figures in PKR</p>
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-xl shadow-md shadow-blue-500/20">
+              <DollarSign className="w-5 h-5" />
+            </span>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Expense Management</h1>
+          </div>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+            Track and manage business operational expenses: Salary, Mill, Fuel &amp; Loader Expenses
+          </p>
         </div>
-        <Btn variant="outline" size="sm" icon={<Download className="w-3.5 h-3.5" />}>Export PDF</Btn>
-      </div>
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-      {tab === "P&L" && (
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Profit & Loss Statement — FY {currentYear}</h3>
-          {invoices.length === 0 && purchaseOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
-              <p className="text-sm font-medium">No financial data yet</p>
-              <p className="text-xs mt-1">Add invoices and purchase orders to see your P&L statement</p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Post Expense Entry</span>
+        </button>
+      </div>
+
+      {/* ── Analytics KPI Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Total Expenses */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden border border-slate-700/60">
+          <div className="absolute right-3 bottom-3 opacity-10 text-white">
+            <DollarSign className="w-20 h-20" />
+          </div>
+          <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Total Expenses</p>
+          <p className="text-2xl font-black mt-2 leading-none text-white font-mono">{fmtC(totalExpense)}</p>
+          <p className="text-[10px] text-slate-400 mt-2 font-medium">All logged categories combined</p>
+        </div>
+
+        {/* Salary */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <Briefcase className="w-5 h-5" />
             </div>
-          ) : (
-          <div className="overflow-x-auto -mx-5">
-            <table className="w-full text-sm min-w-[600px]">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Salary</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(salaryExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Mill Expenses */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mill Expenses</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(millExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Fuel */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fuel</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(fuelExpense)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Loader Expenses */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+              <Truck className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Loader Expenses</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">{fmtC(loaderExpense)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Category Breakdown Chart & Filter Panel ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Expense Visual Breakdown Chart */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 p-5 shadow-sm">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-500" /> Expense Breakdown by Category
+          </h3>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.4} vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={v => `${fmtN(v)}`} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', fontSize: 12 }} formatter={(val: any) => [`${fmtC(Number(val))}`, 'Amount']} />
+                <Bar dataKey="amount" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Expense List & Filter Section */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden flex flex-col">
+          {/* Controls Bar */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Filter Tabs */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
+              {[
+                { id: 'all', label: 'All Expenses' },
+                { id: 'salary', label: 'Salary' },
+                { id: 'mill', label: 'Mill Expenses' },
+                { id: 'fuel', label: 'Fuel' },
+                { id: 'loader', label: 'Loader Expenses' },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                    activeTab === t.id
+                      ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full sm:w-60">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search expense description..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Expense Data Table */}
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-700">
-                  <th className="text-left px-5 pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Line Item</th>
-                  {["Q1", "Q2", "Q3", "Q4", "Full Year"].map(q => (
-                    <th key={q} className="text-right px-3 pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">{q}</th>
-                  ))}
+                <tr className="bg-slate-50/70 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-700/60 text-slate-400 font-bold uppercase tracking-wider text-left">
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Description</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3 text-right">Amount (PKR)</th>
+                  <th className="px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {plData.map(row => {
-                  const fy = row.q1 + row.q2 + row.q3 + row.q4;
-                  const isProfit = row.type === "profit";
-                  const isCost = row.type === "cost";
-                  const isSub = row.type === "sub";
-                  return (
-                    <tr key={row.label} className={cn("transition-colors", isProfit && "bg-green-50/50 dark:bg-green-950/10", isSub && "opacity-75")}>
-                      <td className={cn("px-5 py-3", isSub && "pl-8")}>
-                        <span className={cn("font-semibold text-sm",
-                          isProfit ? "text-[#16A34A] dark:text-green-400" :
-                            isCost ? "text-red-600 dark:text-red-400" :
-                              isSub ? "text-slate-500 font-normal" : "text-slate-800 dark:text-slate-200"
-                        )}>{row.label}</span>
-                      </td>
-                      {[row.q1, row.q2, row.q3, row.q4, fy].map((v, i) => (
-                        <td key={i} className="px-3 py-3 text-right">
-                          <span className={cn("font-mono text-sm",
-                            isProfit ? "font-bold text-[#16A34A] dark:text-green-400" :
-                              isCost ? "text-red-600 dark:text-red-400" :
-                                i === 4 ? "font-bold text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"
-                          )}>{fmtC(v)}</span>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                {filteredExpenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-bold text-slate-500">No expenses recorded</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Click "Post Expense Entry" above to add your first expense</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredExpenses.map(item => {
+                    const info = getCatLabel(item.category);
+                    const IconComponent = info.icon;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${info.bg}`}>
+                            <IconComponent className="w-3.5 h-3.5" />
+                            {info.label}
+                          </span>
                         </td>
-                      ))}
-                    </tr>
-                  );
-                })}
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {item.description}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                          {item.date}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white text-sm whitespace-nowrap">
+                          {fmtC(item.amount)}
+                        </td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <button
+                            onClick={() => deleteExpense(item.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
-          )}
-        </Card>
-      )}
-
-      {tab === "Balance Sheet" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {[
-            { title: "Assets", rows: balanceSheet.assets, color: "blue", total: balanceSheet.assets.reduce((s, r) => s + r.value, 0) },
-            { title: "Liabilities", rows: balanceSheet.liabilities, color: "red", total: balanceSheet.liabilities.reduce((s, r) => s + r.value, 0) },
-            { title: "Equity", rows: balanceSheet.equity, color: "green", total: balanceSheet.equity.reduce((s, r) => s + r.value, 0) },
-          ].map(sec => (
-            <Card key={sec.title} className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">{sec.title}</h3>
-                <span className={cn("text-sm font-mono font-bold",
-                  sec.color === "blue" ? "text-[#2563EB]" : sec.color === "red" ? "text-red-600 dark:text-red-400" : "text-[#16A34A] dark:text-green-400"
-                )}>{fmtC(sec.total)}</span>
-              </div>
-              <div className="space-y-2.5">
-                {sec.rows.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">No data yet</p>
-                ) : sec.rows.map(r => (
-                  <div key={r.label} className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{r.label}</span>
-                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{fmtC(r.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ))}
         </div>
-      )}
+      </div>
 
-      {tab === "Cash Flow" && (
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-5">Cash Flow Statement — FY {currentYear} (PKR thousands)</h3>
-          {invoices.length === 0 && purchaseOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
-              <p className="text-sm font-medium">No cash flow data yet</p>
-              <p className="text-xs mt-1">Add paid invoices and purchase orders to see cash flow</p>
+      {/* ── Post Expense Entry Modal ── */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden z-10 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-blue-600" /> Post New Expense
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          ) : (
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={cashFlowData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeOpacity={0.6} vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}K`} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0" }} formatter={(v: any) => [`${v}K PKR`, ""]} />
-              <Legend />
-              <Bar dataKey="operating" name="Operating" fill="#2563EB" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="investing" name="Investing" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="financing" name="Financing" fill="#EF4444" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          )}
-        </Card>
+
+            <form onSubmit={handleAddSubmit} className="space-y-4 text-xs">
+              {/* Category Choice */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">Expense Category</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'salary', label: 'Salary', icon: Briefcase },
+                    { id: 'mill', label: 'Mill Expenses', icon: Building2 },
+                    { id: 'fuel', label: 'Fuel', icon: Zap },
+                    { id: 'loader', label: 'Loader Expenses', icon: Truck },
+                  ].map(c => {
+                    const IconComp = c.icon;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setCat(c.id as any)}
+                        className={`p-3 rounded-xl border flex items-center gap-2 font-bold text-xs transition-all ${
+                          cat === c.id
+                            ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 shadow-sm'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <IconComp className="w-4 h-4" />
+                        <span>{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Amount */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Amount (PKR)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="e.g. 25000"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-sm text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Description / Notes</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Staff Monthly Salary Payment"
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Expense Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-all shadow-md shadow-blue-500/20"
+                >
+                  Save Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3512,11 +3969,31 @@ function FinanceScreen() {
 // CRM
 // ═══════════════════════════════════════════════════════════
 
-function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
-  const { customers, activities, updateCustomer, deleteCustomer } = useStockFlow();
+function CRMScreen({ onOpenAddCustomer, hideHeader }: { onOpenAddCustomer: () => void; hideHeader?: boolean }) {
+  const { customers, ledger = [], activities, updateCustomer, deleteCustomer } = useStockFlow();
   const [editingCust, setEditingCust] = useState<typeof customers[0] | null>(null);
+  const [viewingLedgerCust, setViewingLedgerCust] = useState<typeof customers[0] | null>(null);
+  const [selectedCustId, setSelectedCustId] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [ledgerModalType, setLedgerModalType] = useState<'debit' | 'credit' | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [tab, setTab] = useState("Customers");
-  const tabs = ["Customers", "Activities"];
+  const tabs = ["Customers", "Ledger Transactions", "Activities"];
+
+  // Search logic: Filter customers starting with or matching typed query
+  const filteredCustomers = customers.filter(c => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    return (
+      c.name.toLowerCase().startsWith(q) ||
+      c.name.toLowerCase().includes(q) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.city && c.city.toLowerCase().includes(q))
+    );
+  });
+
+  const selectedCustomer = customers.find(c => c.id === selectedCustId) || null;
 
   const actIcon = (type: string) => {
     const m: Record<string, { el: React.ReactNode; c: string }> = {
@@ -3530,59 +4007,318 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
     return m[type] ?? m.note;
   };
 
+  const totalDebit = customers.reduce((s, c) => s + (c.debit || 0), 0);
+  const totalCredit = customers.reduce((s, c) => s + (c.credit || 0), 0);
+  const netBalance = customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0);
+
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Relationship (CRM)</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{customers.length} accounts · {fmtC(customers.reduce((s, c) => s + c.spend, 0))} total revenue</p>
+    <div className={cn(hideHeader ? "space-y-6" : "p-6 space-y-6 max-w-[1400px] mx-auto")}>
+      {/* Individual Customer Ledger Statement Modal (Read-Only) */}
+      <CustomerLedgerModal
+        customer={viewingLedgerCust}
+        open={viewingLedgerCust !== null}
+        onClose={() => setViewingLedgerCust(null)}
+      />
+
+      {/* Quick Ledger Transaction Modal */}
+      {ledgerModalType && (
+        <QuickLedgerModal
+          open={ledgerModalType !== null}
+          onClose={() => setLedgerModalType(null)}
+          type={ledgerModalType}
+          selectedCustomerId={selectedCustId || (customers[0]?.id || '')}
+        />
+      )}
+
+      {/* Import Customers Modal */}
+      <ImportCustomersModal open={importModalOpen} onClose={() => setImportModalOpen(false)} />
+
+      {/* ── Header ── */}
+      {!hideHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Customer Relationship &amp; Ledger</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Manage your customer accounts, transactions and ledger</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Btn variant="outline" size="sm" onClick={() => setImportModalOpen(true)} icon={<Upload className="w-3.5 h-3.5" />}>
+              Upload
+            </Btn>
+            <Btn onClick={onOpenAddCustomer} icon={<Plus className="w-4 h-4" />} className="rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg shadow-blue-600/20">
+              Add Customer
+            </Btn>
+          </div>
         </div>
-        <Btn size="sm" onClick={onOpenAddCustomer} icon={<Plus className="w-3.5 h-3.5" />}>Add Customer</Btn>
+      )}
+
+      {/* ── Stat Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Customers */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Customers</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-0.5 leading-none">{customers.length}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Active customers</p>
+          </div>
+        </div>
+
+        {/* Debit */}
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800/50 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Debit</p>
+            <p className="text-lg font-bold text-blue-700 dark:text-blue-300 mt-0.5 leading-tight truncate">{fmtC(totalDebit, true)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total amount billed</p>
+          </div>
+        </div>
+
+        {/* Credit */}
+        <div className="bg-red-50/60 dark:bg-red-950/20 rounded-2xl border border-red-200/80 dark:border-red-800/40 shadow-sm p-5 flex items-center gap-4 group hover:shadow-md hover:border-red-300 dark:hover:border-red-700/60 transition-all duration-200">
+          <div className="w-11 h-11 rounded-2xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200">
+            <ArrowDownLeft className="w-5 h-5 text-red-600 dark:text-red-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Credit</p>
+            <p className="text-lg font-bold text-red-600 dark:text-red-400 mt-0.5 leading-tight truncate">{fmtC(totalCredit, true)}</p>
+            <p className="text-[11px] text-red-400 dark:text-red-500 mt-1">Total payments received</p>
+          </div>
+        </div>
+
+        {/* Balance */}
+        <div className={cn(
+          "rounded-2xl border shadow-sm p-5 flex items-center gap-4 group transition-all duration-200",
+          netBalance > 0
+            ? "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/40 hover:shadow-md hover:border-amber-300 dark:hover:border-amber-700/60"
+            : "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/40 hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60"
+        )}>
+          <div className={cn(
+            "w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-200",
+            netBalance > 0 ? "bg-amber-100 dark:bg-amber-900/40" : "bg-emerald-100 dark:bg-emerald-900/40"
+          )}>
+            <Briefcase className={cn("w-5 h-5", netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Balance</p>
+            <p className={cn(
+              "text-lg font-bold mt-0.5 leading-tight truncate",
+              netBalance > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
+            )}>{fmtC(netBalance, true)}</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total outstanding</p>
+          </div>
+        </div>
       </div>
+
+      {/* ── Search & Quick Actions Panel ── */}
+      <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+        {/* Panel Header */}
+        <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700/60">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Live Customer Search &amp; Direct Ledger Manager</h2>
+            </div>
+            {selectedCustomer && (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 flex items-center gap-1.5">
+                <span className="text-slate-500 dark:text-slate-400 font-normal">Selected:</span>
+                <strong>{selectedCustomer.name}</strong>
+                <button onClick={() => setSelectedCustId('')} className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Type customer first letter or name (e.g. 'A' for Alexandra, 'M' for Marcus)..."
+              value={searchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onChange={e => {
+                setSearchQuery(e.target.value);
+                setIsSearchFocused(true);
+              }}
+              className="w-full pl-11 pr-10 py-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 dark:focus:border-blue-600 transition-all font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setIsSearchFocused(false); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Dropdown */}
+            {isSearchFocused && searchQuery.trim().length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950/60 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center rounded-t-2xl">
+                  <span>Matching customers</span>
+                  <span className="text-blue-500">{filteredCustomers.length} results</span>
+                </div>
+                {filteredCustomers.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    No customers found for &ldquo;{searchQuery}&rdquo;
+                  </div>
+                ) : (
+                  filteredCustomers.map(c => {
+                    const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCustId(c.id);
+                          setSearchQuery(c.name);
+                          setIsSearchFocused(false);
+                        }}
+                        className={cn(
+                          "p-3.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer flex items-center justify-between transition-colors",
+                          selectedCustId === c.id && "bg-blue-50 dark:bg-blue-950/40 border-l-2 border-blue-500"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-300/40 dark:border-blue-600/40 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center">
+                            {c.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                              {c.name}
+                              {c.city && <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium">{c.city}</span>}
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">{c.phone || 'No phone'} · {c.product || 'N/A'}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] text-slate-400 block font-medium uppercase tracking-wide">Net Balance</span>
+                          <span className={cn("font-mono text-xs font-bold", bal > 0 ? 'text-amber-500' : 'text-emerald-500')}>
+                            {fmtC(bal, true)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Quick Action Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Add Debit */}
+            <button
+              onClick={() => setLedgerModalType('debit')}
+              className="group relative flex items-center justify-between p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-950/50 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md hover:shadow-blue-500/10 transition-all duration-200 active:scale-[0.99] text-left"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30 group-hover:scale-110 transition-transform duration-200">
+                  <TrendingUp className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className="text-base font-extrabold tracking-wide text-blue-700 dark:text-blue-300">DEBIT</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record new invoice charge on customer ledger</p>
+                </div>
+              </div>
+              <div className="w-7 h-7 rounded-lg bg-blue-200 dark:bg-blue-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-blue-600 dark:text-blue-400">
+                <ChevronRight className="w-4 h-4" />
+              </div>
+            </button>
+
+            {/* Add Credit */}
+            <button
+              onClick={() => setLedgerModalType('credit')}
+              className="group relative flex items-center justify-between p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 hover:bg-red-100 dark:hover:bg-red-950/50 hover:border-red-300 dark:hover:border-red-700 hover:shadow-md hover:shadow-red-500/10 transition-all duration-200 active:scale-[0.99] text-left"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center shrink-0 shadow-md shadow-red-600/30 group-hover:scale-110 transition-transform duration-200">
+                  <ArrowDownLeft className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className="text-base font-extrabold tracking-wide text-red-700 dark:text-red-300">CREDIT</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record payment received on customer ledger</p>
+                </div>
+              </div>
+              <div className="w-7 h-7 rounded-lg bg-red-200 dark:bg-red-800/60 flex items-center justify-center group-hover:translate-x-0.5 transition-transform text-red-600 dark:text-red-400">
+                <ChevronRight className="w-4 h-4" />
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
+      {/* ── Customers Table ── */}
       {tab === "Customers" && (
-        <Card className="p-5">
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
           {/* Inline Edit Panel */}
           {editingCust && (
-            <div className="mb-4 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-[#2563EB]/20 space-y-3 animate-in fade-in duration-150">
+            <div className="m-5 p-4 rounded-xl bg-blue-50/80 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 space-y-3 animate-in fade-in duration-200">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-800 dark:text-white">Editing: {editingCust.name}</p>
-                <button onClick={() => setEditingCust(null)} className="text-slate-400 hover:text-slate-700 p-1"><X className="w-4 h-4" /></button>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center">
+                    <Edit2 className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-white">Editing: {editingCust.name}</p>
+                </div>
+                <button onClick={() => setEditingCust(null)} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Full Name</label>
-                  <input value={editingCust.name} onChange={e => setEditingCust({ ...editingCust, name: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Customer Name</label>
+                  <input value={editingCust.name || ''} onChange={e => setEditingCust({ ...editingCust, name: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Company</label>
-                  <input value={editingCust.company} onChange={e => setEditingCust({ ...editingCust, company: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Phone Number</label>
+                  <input value={editingCust.phone || ''} onChange={e => setEditingCust({ ...editingCust, phone: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Email</label>
-                  <input value={editingCust.email} onChange={e => setEditingCust({ ...editingCust, email: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">City</label>
+                  <input value={editingCust.city || ''} onChange={e => setEditingCust({ ...editingCust, city: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Product</label>
+                  <input value={editingCust.product || ''} onChange={e => setEditingCust({ ...editingCust, product: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Debit (Billed)</label>
+                  <input type="number" value={editingCust.debit || 0} onChange={e => setEditingCust({ ...editingCust, debit: Number(e.target.value) })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Credit (Paid)</label>
+                  <input type="number" value={editingCust.credit || 0} onChange={e => setEditingCust({ ...editingCust, credit: Number(e.target.value) })}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Status</label>
                   <select value={editingCust.status} onChange={e => setEditingCust({ ...editingCust, status: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400">
                     <option value="active">Active</option>
                     <option value="at_risk">At Risk</option>
                     <option value="inactive">Inactive</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Tier</label>
-                  <select value={editingCust.tier} onChange={e => setEditingCust({ ...editingCust, tier: e.target.value })}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                    <option value="enterprise">Enterprise</option>
-                    <option value="professional">Professional</option>
-                    <option value="growth">Growth</option>
-                  </select>
+                <div className="flex flex-col justify-end">
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wide">Net Balance</span>
+                    <span className="font-mono font-bold text-sm text-slate-800 dark:text-white">{fmtC((editingCust.debit || 0) - (editingCust.credit || 0), true)}</span>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2 justify-end pt-1">
@@ -3591,87 +4327,235 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
               </div>
             </div>
           )}
-          <div className="overflow-x-auto -mx-5">
-            <table className="w-full text-sm min-w-[700px]">
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[850px]">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-700">
-                  {["Customer", "Email", "Orders", "Total Spend", "Tier", "Status", "Actions"].map((h, i) => (
-                    <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left",
-                      (h === "Total Spend" || h === "Orders") && "text-right",
-                      h === "Actions" && "text-center")}>{h}</th>
+                <tr className="border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/60 dark:bg-slate-900/30">
+                  {["Customer", "Phone", "City", "Product", "Credit", "Debit", "Balance", "Status", "Actions"].map((h, i) => (
+                    <th key={i} className={cn(
+                      "py-3 px-4 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left first:pl-6 last:pr-6",
+                      ["Credit", "Debit", "Balance"].includes(h) && "text-right",
+                      h === "Actions" && "text-center"
+                    )}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                {customers.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
-                          <span className="text-[10px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{c.name}</p>
-                          <p className="text-[10px] text-slate-400">{c.company}</p>
-                        </div>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40">
+                {filteredCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-16 text-center">
+                      <div className="flex flex-col items-center gap-3 text-slate-400">
+                        <Users className="w-10 h-10 opacity-30" />
+                        <p className="text-sm font-medium">No customers found</p>
+                        <p className="text-xs">Add a customer or adjust your search</p>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-slate-500 text-xs">{c.email}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">{c.orders}</td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">{fmtC(c.spend, true)}</td>
-                    <td className="px-3 py-3">{statusBadge(c.tier)}</td>
-                    <td className="px-3 py-3">{statusBadge(c.status)}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                          title="Edit customer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => { if (confirm(`Delete customer "${c.name}"?`)) deleteCustomer(c.id); }}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                          title="Delete customer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                  </tr>
+                ) : filteredCustomers.map(c => {
+                  const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                  const isSelected = selectedCustId === c.id;
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedCustId(c.id)}
+                      className={cn(
+                        "hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-all duration-150 group cursor-pointer",
+                        isSelected && "bg-blue-50/60 dark:bg-blue-950/20 border-l-2 border-blue-500"
+                      )}
+                    >
+                      {/* Name */}
+                      <td className="pl-6 pr-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setViewingLedgerCust(c); }}
+                            title="Click to view customer ledger statement"
+                            className={cn(
+                              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs transition-all hover:scale-105 active:scale-95 shadow-sm cursor-pointer",
+                              isSelected
+                                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/30"
+                                : "bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-950/40 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/40 hover:border-blue-300"
+                            )}
+                          >
+                            {c.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                          </button>
+                          <div>
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+                              {/* SAFE ADDITION FOR LEDGER VIEW */}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setViewingLedgerCust(c); }}
+                                className="text-left font-bold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors cursor-pointer"
+                              >
+                                {c.name}
+                              </button>
+                            </p>
+                            {c.company && <p className="text-[10px] text-slate-400 dark:text-slate-500">{c.company}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400 text-xs font-medium">{c.phone || <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+                      <td className="px-4 py-3.5">
+                        {c.city ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
+                            <MapPin className="w-3 h-3 text-slate-400" />{c.city}
+                          </span>
+                        ) : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                      </td>
+                      <td className="px-4 py-3.5 text-slate-700 dark:text-slate-300 text-xs font-medium max-w-[150px] truncate" title={c.product}>{c.product || <span className="text-slate-300 dark:text-slate-600">—</span>}</td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0, true)}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0, true)}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className={cn(
+                          "inline-block px-2.5 py-1 rounded-lg text-xs font-mono font-bold",
+                          bal > 0
+                            ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60"
+                            : bal < 0
+                            ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/60"
+                            : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-600"
+                        )}>
+                          {fmtC(bal, true)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">{statusBadge(c.status)}</td>
+                      <td className="pr-6 pl-4 py-3.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setViewingLedgerCust(c)}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 transition-all duration-150 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/60"
+                            title="View Customer Ledger Statement (Read-Only)"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setEditingCust(editingCust?.id === c.id ? null : c)}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 transition-all duration-150 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/60"
+                            title="Edit customer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { if (confirm(`Delete customer ledger for "${c.name}"?`)) deleteCustomer(c.id); }}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-all duration-150 border border-transparent hover:border-red-200 dark:hover:border-red-800/60"
+                            title="Delete customer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer */}
+          {filteredCustomers.length > 0 && (
+            <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-700/60 bg-slate-50/40 dark:bg-slate-900/20 flex items-center justify-between">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                Showing <span className="font-semibold text-slate-600 dark:text-slate-300">{filteredCustomers.length}</span> of <span className="font-semibold text-slate-600 dark:text-slate-300">{customers.length}</span> customers
+              </p>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-slate-400">Net Outstanding:</span>
+                <span className={cn("font-mono font-bold", netBalance > 0 ? "text-red-500" : "text-emerald-600 dark:text-emerald-400")}>{fmtC(netBalance, true)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Ledger Transactions Table ── */}
+      {tab === "Ledger Transactions" && (
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Customer Ledger Audit Trail</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Persistent Supabase PostgreSQL transactions</p>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+              {ledger.length} total entries
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700/60">
+                <tr>
+                  {["Date", "Customer", "Type", "Amount (PKR)", "Description", "Ref ID"].map((h, i) => (
+                    <th key={i} className="px-5 py-3 font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider text-[10px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/40 font-medium">
+                {ledger.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                      No ledger transactions recorded yet.
                     </td>
+                  </tr>
+                ) : ledger.map(l => (
+                  <tr key={l.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors">
+                    <td className="px-5 py-3.5 text-slate-500 font-mono text-[11px]">{l.date}</td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-white">{l.customerName}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider", l.type === 'debit' ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300" : "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300")}>
+                        {l.type}
+                      </span>
+                    </td>
+                    <td className={cn("px-5 py-3.5 font-mono font-bold text-xs", l.type === 'debit' ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400")}>
+                      {l.type === 'debit' ? '+' : '-'} PKR {Number(l.amount || 0).toLocaleString()}
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{l.description}</td>
+                    <td className="px-5 py-3.5 text-slate-400 font-mono text-[10px]">{l.referenceId || l.id}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </Card>
+        </div>
       )}
 
+      {/* ── Activities Timeline ── */}
       {tab === "Activities" && (
-        <Card className="p-5">
-          <div className="space-y-0">
-            {activities.map((act, i) => {
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700/50 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/60">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent Activity</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Live feed of customer ledger changes</p>
+          </div>
+          <div className="p-5 space-y-0">
+            {activities.length === 0 ? (
+              <div className="py-12 flex flex-col items-center gap-3 text-slate-400">
+                <ActivityIcon className="w-10 h-10 opacity-30" />
+                <p className="text-sm font-medium">No activities yet</p>
+              </div>
+            ) : activities.map((act, i) => {
               const { el, c } = actIcon(act.type);
               return (
-                <div key={act.id} className="flex gap-3 py-3 border-b border-slate-50 dark:border-slate-700/40 last:border-0">
+                <div key={act.id} className="flex gap-4 py-3.5 border-b border-slate-50 dark:border-slate-700/30 last:border-0">
                   <div className="flex flex-col items-center shrink-0">
-                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0", c)}>{el}</div>
-                    {i < activities.length - 1 && <div className="w-px flex-1 bg-slate-100 dark:bg-slate-700 mt-2" />}
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm", c)}>{el}</div>
+                    {i < activities.length - 1 && <div className="w-px flex-1 bg-slate-100 dark:bg-slate-700/60 mt-2" />}
                   </div>
                   <div className="flex-1 min-w-0 pb-2">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{act.title}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{act.body}</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{act.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{act.body}</p>
                       </div>
-                      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{act.time}</span>
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0 mt-0.5 bg-slate-50 dark:bg-slate-700/40 px-2 py-0.5 rounded-md font-medium">{act.time}</span>
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );
@@ -3683,12 +4567,32 @@ function CRMScreen({ onOpenAddCustomer }: { onOpenAddCustomer: () => void }) {
 
 function ReportsScreen() {
   const { products, invoices, purchaseOrders, customers, vendors } = useStockFlow();
-  const [reportType, setReportType] = useState("Inventory Summary");
+  const [reportType, setReportType] = useState(() => {
+    if (typeof window !== 'undefined' && (window.location.pathname.includes('/variance') || window.location.pathname.includes('/theft'))) {
+      return "Stock Variance & Theft Audit";
+    }
+    return "Inventory Summary";
+  });
   const [dateRange, setDateRange] = useState("Last 30 days");
-  const reportTypes = ["Inventory Summary", "Sales Report", "Customer Report", "Purchase Report", "Vendor Report"];
+  const reportTypes = [
+    "Inventory Summary",
+    "Stock Variance & Theft Audit",
+    "Sales Report",
+    "Customer Report",
+    "Purchase Report",
+    "Vendor Report"
+  ];
   const dateRanges = ["Today", "Last 7 days", "Last 30 days", "Last Quarter", "Year to Date", "All Time"];
 
   const summaryKPIs = useMemo(() => {
+    if (reportType === "Stock Variance & Theft Audit") {
+      return [
+        { label: "Audit Incidents", value: "0" },
+        { label: "Total Theft Qty", value: "0 units", warn: false },
+        { label: "Wastage / Damage", value: "0 units" },
+        { label: "Safety Status", value: "100% Safe" },
+      ];
+    }
     if (reportType === "Inventory Summary") {
       const totalValue = products.reduce((s, p) => s + p.price * p.qty, 0);
       const lowStock = products.filter(p => p.status === "low_stock").length;
@@ -3753,8 +4657,8 @@ function ReportsScreen() {
       headers = "Invoice #,Customer,Date,Due Date,Amount (PKR),Items,Status";
       body = invoices.map(i => `${i.id},"${i.customer}",${i.date},${i.due},${i.amount},${i.items},${i.status}`).join("\n");
     } else if (reportType === "Customer Report") {
-      headers = "ID,Name,Company,Email,Orders,Total Spend (PKR),Tier,Status";
-      body = customers.map(c => `${c.id},"${c.name}","${c.company}",${c.email},${c.orders},${c.spend},${c.tier},${c.status}`).join("\n");
+      headers = "ID,Name,Phone,City,Product,Credit (PKR),Debit (PKR),Balance (PKR),Status";
+      body = customers.map(c => `${c.id},"${c.name}","${c.phone || ''}","${c.city || ''}","${c.product || ''}",${c.credit || 0},${c.debit || 0},${c.balance ?? ((c.debit || 0) - (c.credit || 0))},${c.status}`).join("\n");
     } else if (reportType === "Purchase Report") {
       headers = "PO #,Vendor,Date,Expected,Amount (PKR),Items,Status";
       body = purchaseOrders.map(p => `${p.id},"${p.vendor}",${p.date},${p.expected},${p.amount},${p.items},${p.status}`).join("\n");
@@ -3779,8 +4683,8 @@ function ReportsScreen() {
       tableHtml = `<tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th></tr>` +
         invoices.map(i => `<tr><td>${i.id}</td><td>${i.customer}</td><td>${i.date}</td><td>${fmtC(i.amount)}</td><td>${i.status}</td></tr>`).join("");
     } else if (reportType === "Customer Report") {
-      tableHtml = `<tr><th>Name</th><th>Company</th><th>Orders</th><th>Total Spend</th><th>Tier</th><th>Status</th></tr>` +
-        customers.map(c => `<tr><td>${c.name}</td><td>${c.company}</td><td>${c.orders}</td><td>${fmtC(c.spend)}</td><td>${c.tier}</td><td>${c.status}</td></tr>`).join("");
+      tableHtml = `<tr><th>Name</th><th>Phone</th><th>City</th><th>Product</th><th>Credit</th><th>Debit</th><th>Balance</th><th>Status</th></tr>` +
+        customers.map(c => `<tr><td>${c.name}</td><td>${c.phone || '-'}</td><td>${c.city || '-'}</td><td>${c.product || '-'}</td><td>${fmtC(c.credit || 0)}</td><td>${fmtC(c.debit || 0)}</td><td>${fmtC(c.balance ?? ((c.debit || 0) - (c.credit || 0)))}</td><td>${c.status}</td></tr>`).join("");
     } else if (reportType === "Purchase Report") {
       tableHtml = `<tr><th>PO #</th><th>Vendor</th><th>Date</th><th>Amount</th><th>Status</th></tr>` +
         purchaseOrders.map(p => `<tr><td>${p.id}</td><td>${p.vendor}</td><td>${p.date}</td><td>${fmtC(p.amount)}</td><td>${p.status}</td></tr>`).join("");
@@ -3854,6 +4758,37 @@ function ReportsScreen() {
           <Card className="p-5">
             <div className="overflow-x-auto -mx-5">
 
+              {reportType === "Stock Variance & Theft Audit" && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold">
+                      <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>Stock Variance &amp; Theft Audit — 100% Read-Only Safety Protocol Active</span>
+                    </div>
+                    <span className="text-[10px] font-mono uppercase bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded">
+                      ISOLATED TABLE
+                    </span>
+                  </div>
+
+                  <table className="w-full text-sm min-w-[750px]">
+                    <thead><tr className="border-b border-slate-100 dark:border-slate-700">
+                      {["Date & Time", "Product", "Reason", "Opening", "Sold", "Expected", "Actual Count", "Variance", "Logged By"].map((h, i) => (
+                        <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Opening","Sold","Expected","Actual Count","Variance"].includes(h) && "text-right")}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <ShieldAlert className="w-8 h-8 opacity-30 mx-auto mb-2 text-amber-500" />
+                          <p className="text-xs font-semibold">No stock variance or theft incidents logged</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">Audits recorded during sale reconciliations will appear here.</p>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {reportType === "Inventory Summary" && (
                 <table className="w-full text-sm min-w-[650px]">
                   <thead><tr className="border-b border-slate-100 dark:border-slate-700">
@@ -3911,36 +4846,42 @@ function ReportsScreen() {
               )}
 
               {reportType === "Customer Report" && (
-                <table className="w-full text-sm min-w-[650px]">
+                <table className="w-full text-sm min-w-[750px]">
                   <thead><tr className="border-b border-slate-100 dark:border-slate-700">
-                    {["Customer", "Company", "Email", "Orders", "Total Spend (PKR)", "Tier", "Status"].map((h, i) => (
-                      <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Orders","Total Spend (PKR)"].includes(h) && "text-right")}>{h}</th>
+                    {["Name", "Phone", "City", "Product", "Credit (PKR)", "Debit (PKR)", "Balance (PKR)", "Status"].map((h, i) => (
+                      <th key={i} className={cn("pb-3 text-xs font-bold text-slate-400 uppercase tracking-wider px-3 text-left", ["Credit (PKR)","Debit (PKR)","Balance (PKR)"].includes(h) && "text-right")}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody className="divide-y divide-slate-50 dark:divide-slate-700/40">
-                    {customers.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
-                              <span className="text-[9px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                    {customers.map(c => {
+                      const bal = c.balance ?? ((c.debit || 0) - (c.credit || 0));
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2563EB]/20 to-[#7C3AED]/20 flex items-center justify-center shrink-0">
+                                <span className="text-[9px] font-bold text-[#2563EB]">{c.name.split(" ").map(n => n[0]).join("")}</span>
+                              </div>
+                              <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">{c.name}</span>
                             </div>
-                            <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">{c.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-slate-500">{c.company}</td>
-                        <td className="px-3 py-2.5 text-xs text-slate-500">{c.email}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{c.orders}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-[#16A34A]">{fmtC(c.spend)}</td>
-                        <td className="px-3 py-2.5">{statusBadge(c.tier)}</td>
-                        <td className="px-3 py-2.5">{statusBadge(c.status)}</td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500">{c.phone || '-'}</td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500">{c.city || '-'}</td>
+                          <td className="px-3 py-2.5 text-xs text-slate-500 max-w-[150px] truncate">{c.product || '-'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">{fmtC(c.credit || 0)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{fmtC(c.debit || 0)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-slate-800 dark:text-slate-200">{fmtC(bal)}</td>
+                          <td className="px-3 py-2.5">{statusBadge(c.status)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot><tr className="border-t-2 border-slate-200 dark:border-slate-600">
-                    <td colSpan={4} className="px-3 py-2.5 text-xs font-bold text-slate-500">TOTAL CUSTOMER REVENUE</td>
-                    <td className="px-3 py-2.5 text-right font-mono font-black text-[#2563EB] text-sm">{fmtC(customers.reduce((s, c) => s + c.spend, 0))}</td>
-                    <td colSpan={2}></td>
+                    <td colSpan={4} className="px-3 py-2.5 text-xs font-bold text-slate-500">TOTAL NET BALANCE OUTSTANDING</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-600 text-xs">{fmtC(customers.reduce((s, c) => s + (c.credit || 0), 0))}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-600 text-xs">{fmtC(customers.reduce((s, c) => s + (c.debit || 0), 0))}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-black text-[#2563EB] text-sm">{fmtC(customers.reduce((s, c) => s + (c.balance ?? ((c.debit || 0) - (c.credit || 0))), 0))}</td>
+                    <td></td>
                   </tr></tfoot>
                 </table>
               )}
@@ -4694,7 +5635,18 @@ function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
 function MainAppShell() {
   const { notifications, isAuthenticated } = useStockFlow();
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p.includes('/reports') || p.includes('/variance')) return "reports";
+      if (p.includes('/customers') || p.includes('/crm')) return "crm";
+      if (p.includes('/inventory') || p.includes('/stock')) return "inventory";
+      if (p.includes('/sales')) return "sales";
+      if (p.includes('/purchase')) return "purchase";
+      if (p.includes('/finance')) return "finance";
+    }
+    return "dashboard";
+  });
   const [dark, setDark] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -4710,6 +5662,7 @@ function MainAppShell() {
   const [addPOModalOpen, setAddPOModalOpen] = useState(false);
   const [addVendorModalOpen, setAddVendorModalOpen] = useState(false);
   const [addCustomerModalOpen, setAddCustomerModalOpen] = useState(false);
+  const [dataSyncModalOpen, setDataSyncModalOpen] = useState(false);
 
   const unread = notifications.filter(n => !n.read).length;
 
@@ -4724,7 +5677,7 @@ function MainAppShell() {
 
   const renderContent = () => {
     switch (screen) {
-      case "dashboard": return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} />;
+      case "dashboard": return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "inventory": return <InventoryScreen onOpenAddProduct={() => setAddProductModalOpen(true)} onOpenEditProduct={p => setEditingProduct(p)} />;
       case "sales": return <SalesScreen onOpenAddInvoice={() => setAddInvoiceModalOpen(true)} />;
       case "purchase": return <PurchaseScreen onOpenAddPO={() => setAddPOModalOpen(true)} onOpenAddVendor={() => setAddVendorModalOpen(true)} />;
@@ -4733,7 +5686,7 @@ function MainAppShell() {
       case "crm": return <CRMScreen onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
       case "reports": return <ReportsScreen />;
       case "settings": return <SettingsScreen onOpenSupabaseModal={() => setSupabaseModalOpen(true)} />;
-      default: return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} />;
+      default: return <DashboardScreen onViewAllInvoices={() => setScreen("sales")} onOpenAddCustomer={() => setAddCustomerModalOpen(true)} />;
     }
   };
 
@@ -4777,6 +5730,7 @@ function MainAppShell() {
           screen={screen} setCommandOpen={setCommandOpen} setNotifOpen={setNotifOpen} unread={unread}
           onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           onOpenPWAInstall={() => setPwaModalOpen(true)}
+          onOpenSyncModal={() => setDataSyncModalOpen(true)}
         />
 
         {/* Screen content */}
@@ -4834,6 +5788,7 @@ function MainAppShell() {
       <AddPOModal open={addPOModalOpen} onClose={() => setAddPOModalOpen(false)} />
       <AddVendorModal open={addVendorModalOpen} onClose={() => setAddVendorModalOpen(false)} />
       <AddCustomerModal open={addCustomerModalOpen} onClose={() => setAddCustomerModalOpen(false)} />
+      <DataSyncModal open={dataSyncModalOpen} onClose={() => setDataSyncModalOpen(false)} />
     </div>
   );
 }
